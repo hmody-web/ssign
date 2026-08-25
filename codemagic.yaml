@@ -41,8 +41,8 @@ workflows:
       - name: Create ZIP containing APP only
         script: |
           cd build/ios/iphoneos
-          test -d Runner.app
-          zip -r Sign.app.zip Runner.app
+          test -d Sign.app
+          zip -r Sign.app.zip Sign.app
 
     artifacts:
       - build/ios/iphoneos/Sign.app.zip
