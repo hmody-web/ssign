@@ -11,49 +11,34 @@ Future<void> main() async {
 
 class BoomaApp extends StatelessWidget {
   const BoomaApp({super.key});
-
   static const accent = Color(0xFF0C8EFE);
 
-  ThemeData _theme() {
-    const surface = Color(0xFF121212);
-    const background = Color(0xFF090909);
-    const card = Color(0xFF171717);
-    final scheme = ColorScheme.fromSeed(
-      seedColor: accent,
-      brightness: Brightness.dark,
-      surface: surface,
-    ).copyWith(
-      primary: accent,
-      secondary: accent,
-      surface: surface,
-    );
-
+  ThemeData _theme(Brightness brightness) {
+    final dark = brightness == Brightness.dark;
+    final scheme = ColorScheme.fromSeed(seedColor: accent, brightness: brightness);
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
+      brightness: brightness,
       fontFamily: 'Tajawal',
-      colorScheme: scheme,
-      scaffoldBackgroundColor: background,
-      canvasColor: background,
+      colorScheme: scheme.copyWith(primary: accent, secondary: accent),
+      scaffoldBackgroundColor: dark ? const Color(0xFF090909) : const Color(0xFFF5F7FA),
+      canvasColor: dark ? const Color(0xFF090909) : const Color(0xFFF5F7FA),
       cardTheme: CardThemeData(
         elevation: 0,
-        color: card,
+        color: dark ? const Color(0xFF171717) : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         margin: EdgeInsets.zero,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Colors.white.withValues(alpha: .055),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: BorderSide.none,
-        ),
+        fillColor: dark ? Colors.white.withValues(alpha: .055) : Colors.black.withValues(alpha: .035),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide.none),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: .07)),
+          borderSide: BorderSide(color: dark ? Colors.white.withValues(alpha: .07) : Colors.black.withValues(alpha: .07)),
         ),
       ),
-      dividerColor: Colors.white.withValues(alpha: .08),
+      dividerColor: dark ? Colors.white.withValues(alpha: .08) : Colors.black.withValues(alpha: .08),
     );
   }
 
@@ -72,9 +57,9 @@ class BoomaApp extends StatelessWidget {
               GlobalWidgetsLocalizations.delegate,
               GlobalCupertinoLocalizations.delegate,
             ],
-            theme: _theme(),
-            darkTheme: _theme(),
-            themeMode: ThemeMode.dark,
+            theme: _theme(Brightness.light),
+            darkTheme: _theme(Brightness.dark),
+            themeMode: store.theme == 'light' ? ThemeMode.light : ThemeMode.dark,
             home: const HomeShell(),
           );
         },

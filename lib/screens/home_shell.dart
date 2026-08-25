@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import '../models/sign_models.dart';
 import '../services/app_store.dart';
 import '../services/localized.dart';
 import 'library_screen.dart';
@@ -17,12 +18,12 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
   late final PageController _pageController;
+  ImportedFile? _preparedSignFile;
 
-  final pages = const [
-    LibraryScreen(),
-    SignScreen(),
-    SettingsScreen(),
-  ];
+  void _openSignForFile(ImportedFile file) {
+    setState(() => _preparedSignFile = file);
+    _goToPage(1);
+  }
 
   @override
   void initState() {
@@ -62,7 +63,11 @@ class _HomeShellState extends State<HomeShell> {
                   setState(() => index = page);
                 }
               },
-              children: pages,
+              children: [
+                LibraryScreen(onSignRequested: _openSignForFile),
+                SignScreen(preparedFile: _preparedSignFile),
+                const SettingsScreen(),
+              ],
             ),
           ),
           bottomNavigationBar: SafeArea(

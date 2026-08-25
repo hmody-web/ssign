@@ -66,10 +66,36 @@ class SigningIdentity {
   final String p12Path;
   final String provisionPath;
   final DateTime createdAt;
+  final DateTime? expiresAt;
 
-  const SigningIdentity({required this.id, required this.name, required this.p12Path, required this.provisionPath, required this.createdAt});
-  Map<String,dynamic> toJson()=>{'id':id,'name':name,'p12Path':p12Path,'provisionPath':provisionPath,'createdAt':createdAt.toIso8601String()};
-  factory SigningIdentity.fromJson(Map<String,dynamic> j)=>SigningIdentity(id:j['id'] as String,name:j['name'] as String,p12Path:j['p12Path'] as String,provisionPath:j['provisionPath'] as String,createdAt:DateTime.parse(j['createdAt'] as String));
+  const SigningIdentity({
+    required this.id,
+    required this.name,
+    required this.p12Path,
+    required this.provisionPath,
+    required this.createdAt,
+    this.expiresAt,
+  });
+
+  bool get isValid => expiresAt == null || expiresAt!.isAfter(DateTime.now());
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'p12Path': p12Path,
+        'provisionPath': provisionPath,
+        'createdAt': createdAt.toIso8601String(),
+        'expiresAt': expiresAt?.toIso8601String(),
+      };
+
+  factory SigningIdentity.fromJson(Map<String, dynamic> j) => SigningIdentity(
+        id: j['id'] as String,
+        name: j['name'] as String,
+        p12Path: j['p12Path'] as String,
+        provisionPath: j['provisionPath'] as String,
+        createdAt: DateTime.parse(j['createdAt'] as String),
+        expiresAt: j['expiresAt'] == null ? null : DateTime.tryParse(j['expiresAt'].toString()),
+      );
 }
 
 class SignOptions {
