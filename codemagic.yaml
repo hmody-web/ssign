@@ -41,8 +41,8 @@ workflows:
       - name: Create ZIP containing APP only
         script: |
           cd build/ios/iphoneos
-          test -d Sign.app
-          zip -r Sign.app.zip Sign.app
+          test -d Booma.app
+          zip -r Booma.app.zip Booma.app
 
     artifacts:
-      - build/ios/iphoneos/Sign.app.zip
+      - build/ios/iphoneos/Booma.app.zip
