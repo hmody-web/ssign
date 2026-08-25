@@ -1,44 +1,82 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'screens/home_shell.dart';
 import 'services/app_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppStore.instance.initialize();
-  runApp(const SignApp());
+  runApp(const BoomaApp());
 }
 
-class SignApp extends StatelessWidget {
-  const SignApp({super.key});
+class BoomaApp extends StatelessWidget {
+  const BoomaApp({super.key});
 
-  @override
-  Widget build(BuildContext context) {
+  static const accent = Color(0xFF0C8EFE);
+
+  ThemeData _theme() {
+    const surface = Color(0xFF121212);
+    const background = Color(0xFF090909);
+    const card = Color(0xFF171717);
     final scheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF263238),
-      brightness: Brightness.light,
-      surface: const Color(0xFFF7F5F2),
+      seedColor: accent,
+      brightness: Brightness.dark,
+      surface: surface,
+    ).copyWith(
+      primary: accent,
+      secondary: accent,
+      surface: surface,
     );
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Sign',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: scheme,
-        scaffoldBackgroundColor: const Color(0xFFF7F5F2),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          color: Colors.white.withValues(alpha: .88),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-          margin: EdgeInsets.zero,
+
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      fontFamily: 'Tajawal',
+      colorScheme: scheme,
+      scaffoldBackgroundColor: background,
+      canvasColor: background,
+      cardTheme: CardThemeData(
+        elevation: 0,
+        color: card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        margin: EdgeInsets.zero,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: Colors.white.withValues(alpha: .055),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide.none,
         ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide.none),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide(color: Colors.black.withValues(alpha: .05))),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: .07)),
         ),
       ),
-      home: const HomeShell(),
+      dividerColor: Colors.white.withValues(alpha: .08),
     );
   }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: AppStore.instance,
+        builder: (context, _) {
+          final store = AppStore.instance;
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            title: 'Booma',
+            locale: Locale(store.languageCode),
+            supportedLocales: const [Locale('ar'), Locale('en')],
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            theme: _theme(),
+            darkTheme: _theme(),
+            themeMode: ThemeMode.dark,
+            home: const HomeShell(),
+          );
+        },
+      );
 }

@@ -41,11 +41,13 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
         let plistURL=app.appendingPathComponent("Info.plist")
         let data=try Data(contentsOf:plistURL)
         let obj=try PropertyListSerialization.propertyList(from:data,options:[],format:nil) as? [String:Any] ?? [:]
+        let iconPath = self.persistAppIcon(app: app, info: obj) ?? ""
         let out:[String:Any]=[
           "bundleId":obj["CFBundleIdentifier"] as? String ?? "",
           "displayName":obj["CFBundleDisplayName"] as? String ?? obj["CFBundleName"] as? String ?? "",
           "version":obj["CFBundleShortVersionString"] as? String ?? "",
-          "build":obj["CFBundleVersion"] as? String ?? ""
+          "build":obj["CFBundleVersion"] as? String ?? "",
+          "iconPath":iconPath
         ]
         DispatchQueue.main.async{result(out)}
       } catch {DispatchQueue.main.async{result(FlutterError(code:"INSPECT_FAILED",message:error.localizedDescription,details:nil))}}
@@ -77,6 +79,8 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     defer {try? FileManager.default.removeItem(at:root)}
     let app=try findApp(in:root)
     try updateInfoPlist(app:app,bundleId:"",displayName:"",version:str("version"),build:str("build"),removeDevices:(args["removeSupportedDevices"] as? Bool) ?? false)
+    let requestedIcon = str("iconPath")
+    if !requestedIcon.isEmpty { try replaceAppIcons(app: app, iconPath: requestedIcon) }
     let payload=root.appendingPathComponent("Payload").path
     let requestedBundle = str("bundleId")
     let requestedName = str("displayName")
@@ -117,6 +121,98 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     let items=try FileManager.default.contentsOfDirectory(at:payload,includingPropertiesForKeys:nil)
     guard let app=items.first(where:{$0.pathExtension.lowercased()=="app"}) else {throw NSError(domain:"Sign",code:2,userInfo:[NSLocalizedDescriptionKey:"Payload/*.app was not found"])}
     return app
+  }
+
+  private func persistAppIcon(app: URL, info: [String: Any]) -> String? {
+    var preferred = [String]()
+    if let icons = info["CFBundleIcons"] as? [String: Any],
+       let primary = icons["CFBundlePrimaryIcon"] as? [String: Any],
+       let files = primary["CFBundleIconFiles"] as? [String] { preferred.append(contentsOf: files) }
+    if let icons = info["CFBundleIconFiles"] as? [String] { preferred.append(contentsOf: icons) }
+    if let legacy = info["CFBundleIconFile"] as? String, !legacy.isEmpty { preferred.append(legacy) }
+
+    let fm = FileManager.default
+    var candidates = [URL]()
+    if let items = try? fm.contentsOfDirectory(at: app, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) {
+      candidates = items.filter { $0.pathExtension.lowercased() == "png" }
+    }
+
+    func score(_ url: URL) -> Int {
+      let n = url.deletingPathExtension().lastPathComponent.lowercased()
+      var value = 0
+      for (i, name) in preferred.enumerated() {
+        let base = URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent.lowercased()
+        if n == base { value += 1000 - i }
+        else if n.hasPrefix(base) { value += 800 - i }
+      }
+      if n.contains("appicon") { value += 600 }
+      if n.contains("icon") { value += 300 }
+      if n.contains("60x60") || n.contains("76x76") || n.contains("83.5x83.5") { value += 150 }
+      if n.contains("@3x") { value += 80 } else if n.contains("@2x") { value += 50 }
+      if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize { value += min(size / 1024, 120) }
+      return value
+    }
+
+    guard let source = candidates.max(by: { score($0) < score($1) }) else { return nil }
+    guard let image = UIImage(contentsOfFile: source.path), let data = image.pngData() else { return nil }
+    do {
+      let docs = try fm.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+      let dir = docs.appendingPathComponent("AppIcons", isDirectory: true)
+      try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+      let key = (info["CFBundleIdentifier"] as? String ?? UUID().uuidString).replacingOccurrences(of: "/", with: "_")
+      let out = dir.appendingPathComponent("\(key)-\(Int(Date().timeIntervalSince1970 * 1000)).png")
+      try data.write(to: out, options: .atomic)
+      return out.path
+    } catch { return nil }
+  }
+
+
+  private func replaceAppIcons(app: URL, iconPath: String) throws {
+    let sourceURL = URL(fileURLWithPath: iconPath)
+    guard FileManager.default.fileExists(atPath: sourceURL.path), let source = UIImage(contentsOfFile: sourceURL.path) else {
+      throw NSError(domain: "Sign", code: 31, userInfo: [NSLocalizedDescriptionKey: "Selected app icon could not be read"])
+    }
+
+    let plistURL = app.appendingPathComponent("Info.plist")
+    let plistData = try Data(contentsOf: plistURL)
+    let info = try PropertyListSerialization.propertyList(from: plistData, options: [], format: nil) as? [String: Any] ?? [:]
+    var referenced = Set<String>()
+    if let icons = info["CFBundleIcons"] as? [String: Any],
+       let primary = icons["CFBundlePrimaryIcon"] as? [String: Any],
+       let files = primary["CFBundleIconFiles"] as? [String] {
+      for name in files { referenced.insert(URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent.lowercased()) }
+    }
+    if let files = info["CFBundleIconFiles"] as? [String] {
+      for name in files { referenced.insert(URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent.lowercased()) }
+    }
+    if let legacy = info["CFBundleIconFile"] as? String, !legacy.isEmpty {
+      referenced.insert(URL(fileURLWithPath: legacy).deletingPathExtension().lastPathComponent.lowercased())
+    }
+
+    let fm = FileManager.default
+    let items = try fm.contentsOfDirectory(at: app, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+    let targets = items.filter { url in
+      guard url.pathExtension.lowercased() == "png" else { return false }
+      let base = url.deletingPathExtension().lastPathComponent.lowercased()
+      if base.contains("appicon") || base.contains("icon") { return true }
+      return referenced.contains(where: { base == $0 || base.hasPrefix($0 + "@") })
+    }
+    guard !targets.isEmpty else {
+      throw NSError(domain: "Sign", code: 32, userInfo: [NSLocalizedDescriptionKey: "No replaceable app icon files were found inside this IPA"])
+    }
+
+    for target in targets {
+      let oldImage = UIImage(contentsOfFile: target.path)
+      let size = oldImage?.size ?? CGSize(width: 180, height: 180)
+      let scale = oldImage?.scale ?? 1
+      let format = UIGraphicsImageRendererFormat.default()
+      format.scale = scale
+      format.opaque = false
+      let renderer = UIGraphicsImageRenderer(size: size, format: format)
+      let rendered = renderer.image { _ in source.draw(in: CGRect(origin: .zero, size: size)) }
+      guard let data = rendered.pngData() else { continue }
+      try data.write(to: target, options: .atomic)
+    }
   }
 
   private func updateInfoPlist(app:URL,bundleId:String,displayName:String,version:String,build:String,removeDevices:Bool) throws {

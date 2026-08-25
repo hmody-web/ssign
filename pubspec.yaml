@@ -1,5 +1,5 @@
 name: sign
-description: Sign - on-device iOS IPA signing workspace.
+description: Booma - on-device iOS IPA signing workspace.
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -9,11 +9,29 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   cupertino_icons: ^1.0.8
   file_picker: ^8.1.7
   path: ^1.9.0
   path_provider: ^2.1.5
   shared_preferences: ^2.3.5
+  url_launcher: ^6.3.1
 
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/icon.png
+    - assets/images/avatar.png
+  fonts:
+    - family: Tajawal
+      fonts:
+        - asset: assets/fonts/Tajawal.ttf
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/icon.png"
+  remove_alpha_ios: true

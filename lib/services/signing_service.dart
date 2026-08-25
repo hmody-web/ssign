@@ -18,7 +18,7 @@ class SigningService {
     final result=await _channel.invokeMethod<String>('signIpa',{
       'ipaPath':ipaPath,'p12Path':p12Path,'p12Password':p12Password,'provisionPath':provisionPath,
       'bundleId':options.bundleId,'displayName':options.displayName,'version':options.version,'build':options.build,
-      'removeSupportedDevices':options.removeSupportedDevices,
+      'removeSupportedDevices':options.removeSupportedDevices,'iconPath':options.iconPath,
     });
     if(result==null||result.isEmpty) throw StateError('Signing engine returned no output path');
     return result;
