@@ -1,6 +1,6 @@
 workflows:
   ios-unsigned:
-    name: iOS Unsigned APP
+    name: Sign iOS Unsigned APP
     max_build_duration: 120
 
     environment:
@@ -18,14 +18,31 @@ workflows:
           cd ios
           pod install
 
-      - name: Build iOS without signing
+      - name: Prepare Flutter iOS build
         script: |
-          flutter build ios --release --no-codesign
+          flutter build ios --release --no-codesign --config-only
+
+      - name: Build iOS APP without signing
+        script: |
+          cd ios
+          xcodebuild \
+            -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CONFIGURATION_BUILD_DIR="$CM_BUILD_DIR/build/ios/iphoneos" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build
 
       - name: Create ZIP containing APP only
         script: |
           cd build/ios/iphoneos
-          zip -r Dandan.app.zip Runner.app
+          test -d Runner.app
+          zip -r Sign.app.zip Runner.app
 
     artifacts:
-      - build/ios/iphoneos/Dandan.app.zip
+      - build/ios/iphoneos/Sign.app.zip
