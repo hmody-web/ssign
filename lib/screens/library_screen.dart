@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import '../models/sign_models.dart';
 import '../services/app_store.dart';
 import '../services/file_import_service.dart';
 import '../services/signing_service.dart';
@@ -29,6 +28,6 @@ class _LibraryScreenState extends State<LibraryScreen>{
       PopupMenuButton<String>(onSelected:(v) async { if(v=='share') await signer.share(f.path); if(v=='delete'){try{await File(f.path).delete();}catch(_){} await store.removeFile(f.id);} },itemBuilder:(_)=>[const PopupMenuItem(value:'share',child:Text('Share / Export')),const PopupMenuItem(value:'delete',child:Text('Delete'))]),
     ])));})),
   ]));
-  IconData _icon(String k)=>switch(k){'IPA'=>CupertinoIcons.app_badge,'Signed IPA'=>CupertinoIcons.checkmark_shield_fill,'Certificate'=>CupertinoIcons.lock_shield,'Provision'=>CupertinoIcons.doc_badge_gearshape,_=>CupertinoIcons.doc};
+  IconData _icon(String k)=>switch(k){'IPA'=>CupertinoIcons.app_badge,'Signed IPA'=>CupertinoIcons.checkmark_shield_fill,'Certificate'=>CupertinoIcons.lock_shield,'Provision'=>CupertinoIcons.doc_text,_=>CupertinoIcons.doc};
   String _size(int b)=>b>1024*1024?'${(b/1024/1024).toStringAsFixed(1)} MB':'${(b/1024).toStringAsFixed(0)} KB';
 }
