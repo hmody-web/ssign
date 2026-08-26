@@ -9,7 +9,6 @@ import '../services/file_import_service.dart';
 import '../services/signing_service.dart';
 import '../services/localized.dart';
 import '../widgets/glass_card.dart';
-import 'signed_files_screen.dart';
 
 class SignScreen extends StatefulWidget {
   final ImportedFile? preparedFile;
@@ -427,40 +426,6 @@ class _SignScreenState extends State<SignScreen> {
                 style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .55)),
               ),
               const SizedBox(height: 20),
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(24),
-                  onTap: () => Navigator.of(context).push(
-                    CupertinoPageRoute(
-                      builder: (_) => SignedFilesScreen(
-                        onSignRequested: (file) => _loadImportedFile(file),
-                      ),
-                    ),
-                  ),
-                  child: GlassCard(
-                    padding: const EdgeInsets.all(15),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary.withValues(alpha: .13), borderRadius: BorderRadius.circular(14)),
-                          child: Icon(CupertinoIcons.checkmark_shield_fill, color: Theme.of(context).colorScheme.primary),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(tr('الملفات الموقعة', 'Signed Files'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                          const SizedBox(height: 2),
-                          Text('${store.signedFiles.length} ${tr('ملف موقع', 'signed files')}', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48))),
-                        ])),
-                        const Icon(CupertinoIcons.chevron_left, size: 18),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
               GlassCard(
                 child: Column(
                   children: [

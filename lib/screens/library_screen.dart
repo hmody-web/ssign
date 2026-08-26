@@ -7,6 +7,7 @@ import '../services/file_import_service.dart';
 import '../services/signing_service.dart';
 import '../services/localized.dart';
 import '../widgets/glass_card.dart';
+import 'signed_files_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
   final ValueChanged<ImportedFile>? onSignRequested;
@@ -31,8 +32,36 @@ class _LibraryScreenState extends State<LibraryScreen> {
     });
   }
 
+  Future<bool> _confirmDelete({String? itemName, int? count}) async {
+    final title = count != null && count > 1 ? tr('حذف الملفات؟', 'Delete files?') : tr('تأكيد الحذف', 'Confirm delete');
+    final message = count != null && count > 1
+        ? '${tr('سيتم حذف', 'This will delete')} $count ${tr('ملفات نهائياً.', 'files permanently.')}'
+        : itemName == null
+            ? tr('هل تريد حذف هذا العنصر نهائياً؟', 'Delete this item permanently?')
+            : '${tr('هل تريد حذف', 'Delete')} «$itemName» ${tr('نهائياً؟', 'permanently?')}';
+    return await showCupertinoDialog<bool>(
+          context: context,
+          builder: (context) => CupertinoAlertDialog(
+            title: Text(title),
+            content: Padding(padding: const EdgeInsets.only(top: 8), child: Text(message)),
+            actions: [
+              CupertinoDialogAction(onPressed: () => Navigator.pop(context, false), child: Text(tr('إلغاء', 'Cancel'))),
+              CupertinoDialogAction(isDestructiveAction: true, onPressed: () => Navigator.pop(context, true), child: Text(tr('حذف', 'Delete'))),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Future<void> _deleteOne(ImportedFile file) async {
+    if (!await _confirmDelete(itemName: file.name)) return;
+    try { await File(file.path).delete(); } catch (_) {}
+    await store.removeFile(file.id);
+  }
+
   Future<void> _deleteSelected() async {
     final targets = store.files.where((f) => selected.contains(f.id)).toList();
+    if (targets.isEmpty || !await _confirmDelete(count: targets.length)) return;
     for (final f in targets) {
       try { await File(f.path).delete(); } catch (_) {}
     }
@@ -159,6 +188,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     await signer.share(file.path);
                   },
                 ),
+                const SizedBox(height: 10),
+                _actionTile(
+                  context,
+                  icon: CupertinoIcons.trash,
+                  title: tr('حذف', 'Delete'),
+                  subtitle: tr('حذف الملف نهائياً من الجهاز', 'Permanently remove this file'),
+                  destructive: true,
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await _deleteOne(file);
+                  },
+                ),
               ],
             ),
           ),
@@ -173,8 +214,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
+    bool destructive = false,
   }) => Material(
-        color: Theme.of(context).colorScheme.primary.withValues(alpha: .075),
+        color: (destructive ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.primary).withValues(alpha: .075),
         borderRadius: BorderRadius.circular(18),
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
@@ -187,10 +229,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary.withValues(alpha: .14),
+                    color: (destructive ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.primary).withValues(alpha: .14),
                     borderRadius: BorderRadius.circular(13),
                   ),
-                  child: Icon(icon, color: Theme.of(context).colorScheme.primary),
+                  child: Icon(icon, color: destructive ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.primary),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -275,6 +317,49 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               ),
             ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+              sliver: SliverToBoxAdapter(
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(24),
+                    onTap: () => Navigator.of(context).push(
+                      CupertinoPageRoute(
+                        builder: (_) => SignedFilesScreen(
+                          onSignRequested: (file) => widget.onSignRequested?.call(file),
+                        ),
+                      ),
+                    ),
+                    child: GlassCard(
+                      padding: const EdgeInsets.all(15),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary.withValues(alpha: .13), borderRadius: BorderRadius.circular(14)),
+                            child: Icon(CupertinoIcons.checkmark_shield_fill, color: Theme.of(context).colorScheme.primary),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(tr('الملفات الموقعة', 'Signed Files'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                                const SizedBox(height: 2),
+                                Text('${store.signedFiles.length} ${tr('ملف موقع', 'signed files')}', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48))),
+                              ],
+                            ),
+                          ),
+                          const Icon(CupertinoIcons.chevron_left, size: 18),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 26, 20, 10),
@@ -282,10 +367,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   children: [
                     Expanded(child: Text(tr('الملفات', 'Library'), style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800))),
                     if (store.files.isNotEmpty)
-                      TextButton.icon(
-                        onPressed: () => setState(() { selecting = !selecting; selected.clear(); }),
-                        icon: Icon(selecting ? CupertinoIcons.xmark : CupertinoIcons.checkmark_circle),
-                        label: Text(selecting ? tr('إلغاء', 'Cancel') : tr('تحديد', 'Select')),
+                      Tooltip(
+                        message: selecting ? tr('إلغاء', 'Cancel') : tr('تحديد', 'Select'),
+                        child: Material(
+                          color: Theme.of(context).colorScheme.primary.withValues(alpha: selecting ? .20 : .12),
+                          borderRadius: BorderRadius.circular(14),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: () => setState(() { selecting = !selecting; selected.clear(); }),
+                            child: SizedBox(
+                              width: 42,
+                              height: 38,
+                              child: Icon(selecting ? CupertinoIcons.xmark : CupertinoIcons.checkmark_circle_fill, color: Theme.of(context).colorScheme.primary, size: 21),
+                            ),
+                          ),
+                        ),
                       ),
                   ],
                 ),
@@ -366,21 +462,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 ),
                               ),
                               if (!selecting)
-                                PopupMenuButton<String>(
-                                onSelected: (v) async {
-                                  if (v == 'share') await signer.share(f.path);
-                                  if (v == 'delete') {
-                                    try {
-                                      await File(f.path).delete();
-                                    } catch (_) {}
-                                    await store.removeFile(f.id);
-                                  }
-                                },
-                                itemBuilder: (_) => [
-                                  PopupMenuItem(value: 'share', child: Text(tr('مشاركة / تصدير', 'Share / Export'))),
-                                  PopupMenuItem(value: 'delete', child: Text(tr('حذف', 'Delete'))),
-                                ],
-                              ),
+                                FilledButton(
+                                  onPressed: () => _showFileActions(f),
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: const Size(76, 34),
+                                    padding: const EdgeInsets.symmetric(horizontal: 13),
+                                    backgroundColor: Theme.of(context).colorScheme.primary,
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                  child: Text(tr('التفاصيل', 'Details'), style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w800)),
+                                ),
                             ],
                           ),
                         ),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/sign_models.dart';
 import '../services/app_store.dart';
 import '../services/localized.dart';
+import '../services/signing_service.dart';
 import '../widgets/glass_card.dart';
 
 class SignedFilesScreen extends StatefulWidget {
@@ -16,6 +17,7 @@ class SignedFilesScreen extends StatefulWidget {
 
 class _SignedFilesScreenState extends State<SignedFilesScreen> {
   final store = AppStore.instance;
+  final signer = SigningService();
   bool selecting = false;
   final Set<String> selected = {};
 
@@ -29,8 +31,27 @@ class _SignedFilesScreenState extends State<SignedFilesScreen> {
     });
   }
 
+  Future<bool> _confirmDelete({String? itemName, int? count}) async {
+    final message = count != null && count > 1
+        ? '${tr('سيتم حذف', 'This will delete')} $count ${tr('ملفات موقعة نهائياً.', 'signed files permanently.')}'
+        : '${tr('هل تريد حذف', 'Delete')} «${itemName ?? tr('هذا الملف', 'this file')}» ${tr('نهائياً؟', 'permanently?')}';
+    return await showCupertinoDialog<bool>(
+          context: context,
+          builder: (context) => CupertinoAlertDialog(
+            title: Text(tr('تأكيد الحذف', 'Confirm delete')),
+            content: Padding(padding: const EdgeInsets.only(top: 8), child: Text(message)),
+            actions: [
+              CupertinoDialogAction(onPressed: () => Navigator.pop(context, false), child: Text(tr('إلغاء', 'Cancel'))),
+              CupertinoDialogAction(isDestructiveAction: true, onPressed: () => Navigator.pop(context, true), child: Text(tr('حذف', 'Delete'))),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
   Future<void> _deleteSelected() async {
     final targets = items.where((e) => selected.contains(e.id)).toList();
+    if (targets.isEmpty || !await _confirmDelete(count: targets.length)) return;
     for (final f in targets) {
       try { await File(f.path).delete(); } catch (_) {}
     }
@@ -39,8 +60,144 @@ class _SignedFilesScreenState extends State<SignedFilesScreen> {
   }
 
   Future<void> _deleteOne(ImportedFile file) async {
+    if (!await _confirmDelete(itemName: file.name)) return;
     try { await File(file.path).delete(); } catch (_) {}
     await store.removeFile(file.id);
+  }
+
+  Future<void> _showSideActions(ImportedFile file) async {
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: tr('إغلاق', 'Close'),
+      barrierColor: Colors.black.withValues(alpha: .38),
+      transitionDuration: const Duration(milliseconds: 330),
+      pageBuilder: (dialogContext, _, __) => SafeArea(
+        child: Align(
+          alignment: rtl ? Alignment.centerRight : Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Material(
+              color: Colors.transparent,
+              child: SizedBox(
+                width: 312,
+                child: GlassCard(
+                  radius: 30,
+                  padding: const EdgeInsets.fromLTRB(16, 17, 16, 18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          _icon(context, file),
+                          const SizedBox(width: 11),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(file.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+                                const SizedBox(height: 2),
+                                Text(file.bundleId ?? tr('IPA موقع', 'Signed IPA'), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48))),
+                              ],
+                            ),
+                          ),
+                          IconButton(onPressed: () => Navigator.pop(dialogContext), icon: const Icon(CupertinoIcons.xmark_circle_fill)),
+                        ],
+                      ),
+                      const SizedBox(height: 17),
+                      _sideAction(
+                        dialogContext,
+                        icon: CupertinoIcons.arrow_down_circle_fill,
+                        title: tr('تثبيت', 'Install'),
+                        onTap: () async {
+                          Navigator.pop(dialogContext);
+                          final ok = await signer.install(file.path);
+                          if (mounted && !ok) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تعذر فتح مثبت iOS.', 'iOS did not open the installer.'))));
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 9),
+                      _sideAction(
+                        dialogContext,
+                        icon: CupertinoIcons.signature,
+                        title: tr('توقيع مرة أخرى', 'Sign again'),
+                        onTap: () {
+                          Navigator.pop(dialogContext);
+                          Navigator.of(context).pop();
+                          widget.onSignRequested(file);
+                        },
+                      ),
+                      const SizedBox(height: 9),
+                      _sideAction(
+                        dialogContext,
+                        icon: CupertinoIcons.share,
+                        title: tr('مشاركة', 'Share'),
+                        onTap: () async {
+                          Navigator.pop(dialogContext);
+                          await signer.share(file.path);
+                        },
+                      ),
+                      const SizedBox(height: 9),
+                      _sideAction(
+                        dialogContext,
+                        icon: CupertinoIcons.trash_fill,
+                        title: tr('حذف', 'Delete'),
+                        destructive: true,
+                        onTap: () async {
+                          Navigator.pop(dialogContext);
+                          await _deleteOne(file);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      transitionBuilder: (context, animation, _, child) {
+        final begin = rtl ? const Offset(1.0, 0) : const Offset(-1.0, 0);
+        final slide = Tween<Offset>(begin: begin, end: Offset.zero).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+        return SlideTransition(position: slide, child: FadeTransition(opacity: animation, child: child));
+      },
+    );
+  }
+
+  Widget _sideAction(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    bool destructive = false,
+  }) {
+    final color = destructive ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.primary;
+    return Material(
+      color: color.withValues(alpha: .09),
+      borderRadius: BorderRadius.circular(17),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(17),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(color: color.withValues(alpha: .14), borderRadius: BorderRadius.circular(12)),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              const SizedBox(width: 11),
+              Expanded(child: Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: destructive ? color : null))),
+              Icon(CupertinoIcons.chevron_forward, size: 15, color: color.withValues(alpha: .8)),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -52,11 +209,12 @@ class _SignedFilesScreenState extends State<SignedFilesScreen> {
           title: Text(tr('الملفات الموقعة', 'Signed Files')),
           actions: [
             if (items.isNotEmpty)
-              TextButton.icon(
+              IconButton.filledTonal(
+                tooltip: selecting ? tr('إلغاء', 'Cancel') : tr('تحديد', 'Select'),
                 onPressed: () => setState(() { selecting = !selecting; selected.clear(); }),
-                icon: Icon(selecting ? CupertinoIcons.xmark : CupertinoIcons.checkmark_circle),
-                label: Text(selecting ? tr('إلغاء', 'Cancel') : tr('تحديد', 'Select')),
+                icon: Icon(selecting ? CupertinoIcons.xmark : CupertinoIcons.checkmark_circle_fill),
               ),
+            const SizedBox(width: 8),
           ],
         ),
         body: AnimatedBuilder(
@@ -113,11 +271,10 @@ class _SignedFilesScreenState extends State<SignedFilesScreen> {
                     padding: const EdgeInsets.only(bottom: 10),
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
-                      onLongPress: selecting ? null : () => _deleteOne(f),
+                      onLongPress: () => _toggle(f),
                       onTap: () {
                         if (selecting) { _toggle(f); return; }
-                        Navigator.pop(context);
-                        widget.onSignRequested(f);
+                        _showSideActions(f);
                       },
                       child: GlassCard(
                         padding: const EdgeInsets.all(14),
@@ -136,7 +293,7 @@ class _SignedFilesScreenState extends State<SignedFilesScreen> {
                                 Text(f.bundleId ?? tr('IPA موقع', 'Signed IPA'), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48))),
                               ]),
                             ),
-                            if (!selecting) const Icon(CupertinoIcons.chevron_left, size: 17),
+                            if (!selecting) Icon(CupertinoIcons.chevron_left, size: 19, color: Theme.of(context).colorScheme.primary),
                           ],
                         ),
                       ),

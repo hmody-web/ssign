@@ -108,6 +108,28 @@ class _CertificatesScreenState extends State<CertificatesScreen> {
 
   String _date(DateTime d) => '${d.year}/${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}';
 
+  Future<void> _deleteIdentity(SigningIdentity id) async {
+    final confirmed = await showCupertinoDialog<bool>(
+          context: context,
+          builder: (context) => CupertinoAlertDialog(
+            title: Text(tr('حذف الشهادة؟', 'Delete certificate?')),
+            content: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text('${tr('هل تريد حذف', 'Delete')} «${id.name}» ${tr('نهائياً؟', 'permanently?')}'),
+            ),
+            actions: [
+              CupertinoDialogAction(onPressed: () => Navigator.pop(context, false), child: Text(tr('إلغاء', 'Cancel'))),
+              CupertinoDialogAction(isDestructiveAction: true, onPressed: () => Navigator.pop(context, true), child: Text(tr('حذف', 'Delete'))),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+    await signing.deletePassword(id.id);
+    await store.removeIdentity(id.id);
+  }
+
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
         animation: store,
@@ -165,7 +187,7 @@ class _CertificatesScreenState extends State<CertificatesScreen> {
                         const SizedBox(height: 3),
                         Text('${p.basename(id.p12Path)} • ${p.basename(id.provisionPath)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .38))),
                       ])),
-                      IconButton(onPressed: () async { await signing.deletePassword(id.id); await store.removeIdentity(id.id); }, icon: const Icon(CupertinoIcons.trash, size: 19)),
+                      IconButton(onPressed: () => _deleteIdentity(id), icon: const Icon(CupertinoIcons.trash, size: 19)),
                     ]),
                   ),
                 );

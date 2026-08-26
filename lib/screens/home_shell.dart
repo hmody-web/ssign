@@ -5,6 +5,7 @@ import '../models/sign_models.dart';
 import '../services/app_store.dart';
 import '../services/localized.dart';
 import 'library_screen.dart';
+import 'apps_screen.dart';
 import 'sign_screen.dart';
 import 'settings_screen.dart';
 
@@ -22,7 +23,7 @@ class _HomeShellState extends State<HomeShell> {
 
   void _openSignForFile(ImportedFile file) {
     setState(() => _preparedSignFile = file);
-    _goToPage(1);
+    _goToPage(2);
   }
 
   @override
@@ -64,6 +65,7 @@ class _HomeShellState extends State<HomeShell> {
                 }
               },
               children: [
+                AppsScreen(onSignRequested: _openSignForFile),
                 LibraryScreen(onSignRequested: _openSignForFile),
                 SignScreen(preparedFile: _preparedSignFile),
                 const SettingsScreen(),
@@ -101,6 +103,11 @@ class _HomeShellState extends State<HomeShell> {
                     selectedIndex: index,
                     onDestinationSelected: _goToPage,
                     destinations: [
+                      NavigationDestination(
+                        icon: const Icon(CupertinoIcons.square_grid_2x2),
+                        selectedIcon: const Icon(CupertinoIcons.square_grid_2x2_fill),
+                        label: tr('بــومـة', 'Booma'),
+                      ),
                       NavigationDestination(
                         icon: const Icon(CupertinoIcons.folder),
                         selectedIcon: const Icon(CupertinoIcons.folder_fill),

@@ -60,8 +60,34 @@ class BoomaApp extends StatelessWidget {
             theme: _theme(Brightness.light),
             darkTheme: _theme(Brightness.dark),
             themeMode: store.theme == 'light' ? ThemeMode.light : ThemeMode.dark,
+            builder: (context, child) => _KeyboardDismissLayer(child: child ?? const SizedBox.shrink()),
             home: const HomeShell(),
           );
         },
+      );
+}
+
+
+class _KeyboardDismissLayer extends StatelessWidget {
+  final Widget child;
+  const _KeyboardDismissLayer({required this.child});
+
+  @override
+  Widget build(BuildContext context) => Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (event) {
+          final focus = FocusManager.instance.primaryFocus;
+          final focusContext = focus?.context;
+          if (focus == null || !focus.hasFocus || focusContext == null) return;
+
+          final renderObject = focusContext.findRenderObject();
+          if (renderObject is RenderBox && renderObject.hasSize) {
+            final local = renderObject.globalToLocal(event.position);
+            final insideFocusedField = Offset.zero & renderObject.size;
+            if (insideFocusedField.contains(local)) return;
+          }
+          focus.unfocus();
+        },
+        child: child,
       );
 }
