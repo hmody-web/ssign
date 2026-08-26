@@ -9,8 +9,10 @@ class SigningService {
 
   Future<String> _resolveExistingPath(String original) async {
     if (original.isEmpty) return original;
-    final direct = File(original);
-    if (await direct.exists()) return direct.path;
+    final directFile = File(original);
+    if (await directFile.exists()) return directFile.path;
+    final directDir = Directory(original);
+    if (await directDir.exists()) return directDir.path;
 
     final docs = await getApplicationDocumentsDirectory();
     final basename = p.basename(original);
@@ -21,14 +23,14 @@ class SigningService {
       p.join(docs.path, basename),
     ];
     for (final candidate in candidates) {
-      if (await File(candidate).exists()) return candidate;
+      if (await File(candidate).exists() || await Directory(candidate).exists()) return candidate;
     }
 
     // iOS can change the absolute sandbox container path between installs/updates.
     // As a final recovery step, locate the same file name anywhere under Documents.
     try {
       await for (final entity in docs.list(recursive: true, followLinks: false)) {
-        if (entity is File && p.basename(entity.path) == basename) {
+        if (p.basename(entity.path) == basename && (entity is File || entity is Directory)) {
           return entity.path;
         }
       }
@@ -74,7 +76,7 @@ class SigningService {
         ? ''
         : await _resolveExistingPath(options.iconPath);
 
-    if (!await File(fixedIpa).exists()) {
+    if (!await File(fixedIpa).exists() && !await Directory(fixedIpa).exists()) {
       throw StateError('IPA file is missing');
     }
     if (!await File(fixedP12).exists()) {

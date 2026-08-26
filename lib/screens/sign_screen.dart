@@ -64,7 +64,7 @@ class _SignScreenState extends State<SignScreen> {
     final draft = store.signDraft;
     if (draft == null || !mounted) return;
     final path = (draft['ipaPath'] ?? '').toString();
-    if (path.isEmpty || !File(path).existsSync()) return;
+    if (path.isEmpty || (!File(path).existsSync() && !Directory(path).existsSync())) return;
     setState(() {
       ipaPath = path;
       identityId = (draft['identityId'] ?? '').toString().isEmpty ? null : draft['identityId'].toString();
@@ -167,6 +167,22 @@ class _SignScreenState extends State<SignScreen> {
       // Keep the metadata already stored with the imported file.
     }
     _persistDraft();
+  }
+
+
+  Future<void> _clearSelectedApp() async {
+    setState(() {
+      ipaPath = null;
+      iconPath = null;
+      replacementIconPath = null;
+      _loadedPreparedPath = null;
+      _resetCopies();
+      bundle.clear();
+      name.clear();
+      version.clear();
+      buildCtrl.clear();
+    });
+    await store.clearSignDraft();
   }
 
   Future<void> _chooseIpa() async {
@@ -465,7 +481,7 @@ class _SignScreenState extends State<SignScreen> {
                       const Divider(height: 28),
                     ],
                     _picker(
-                      CupertinoIcons.app_badge,
+                      CupertinoIcons.doc_fill,
                       tr('التطبيق', 'Application'),
                       ipaPath == null
                           ? tr('اختر ملف IPA', 'Select an IPA')
@@ -473,7 +489,23 @@ class _SignScreenState extends State<SignScreen> {
                               ? p.basename(ipaPath!)
                               : name.text,
                       _chooseIpa,
+                      selected: ipaPath != null,
                     ),
+                    if (ipaPath != null) ...[
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF767676),
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: busy ? null : _clearSelectedApp,
+                          icon: const Icon(CupertinoIcons.xmark, size: 18),
+                          label: Text(tr('إلغاء', 'Cancel')),
+                        ),
+                      ),
+                    ],
                     const Divider(height: 28),
                     if (identity == null)
                       Row(
@@ -686,9 +718,19 @@ class _SignScreenState extends State<SignScreen> {
         child: Icon(CupertinoIcons.app_badge, size: 32, color: Theme.of(context).colorScheme.primary),
       );
 
-  Widget _picker(IconData icon, String title, String subtitle, VoidCallback action) => Row(
+  Widget _picker(IconData icon, String title, String subtitle, VoidCallback action, {bool selected = false}) => Row(
         children: [
-          Icon(icon),
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: selected
+                  ? Theme.of(context).colorScheme.primary.withValues(alpha: .18)
+                  : const Color(0xFFD8C29D).withValues(alpha: .18),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(icon, color: selected ? Theme.of(context).colorScheme.primary : const Color(0xFFD8C29D)),
+          ),
           const SizedBox(width: 13),
           Expanded(
             child: Column(
@@ -704,7 +746,15 @@ class _SignScreenState extends State<SignScreen> {
               ],
             ),
           ),
-          FilledButton.tonal(onPressed: action, child: Text(tr('اختيار', 'Choose'))),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: selected ? Theme.of(context).colorScheme.primary : const Color(0xFFD8C29D),
+              foregroundColor: selected ? Theme.of(context).colorScheme.onPrimary : Colors.black87,
+            ),
+            onPressed: action,
+            icon: Icon(selected ? CupertinoIcons.checkmark_circle_fill : CupertinoIcons.folder_fill, size: 18),
+            label: Text(selected ? tr('تم الاختيار', 'Selected') : tr('اختيار', 'Choose')),
+          ),
         ],
       );
 }

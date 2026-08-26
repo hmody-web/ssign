@@ -121,23 +121,8 @@ class _AppDetailScreenState extends State<AppDetailScreen> {
                     ),
                     const SizedBox(height: 22),
                     _Stats(app: app),
-                    const SizedBox(height: 26),
-                    _SectionTitle(tr('ما الجديد', "What's New")),
-                    const SizedBox(height: 10),
-                    Text(
-                      app.version.trim().isEmpty
-                          ? tr('معلومات الإصدار غير متوفرة', 'Version information is unavailable')
-                          : '${tr('الإصدار', 'Version')} ${app.version}',
-                      style: TextStyle(fontSize: 15, height: 1.55, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .72)),
-                    ),
-                    if (app.createdAt != null) ...[
-                      const SizedBox(height: 5),
-                      Text(_formatDate(app.createdAt!), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .42))),
-                    ],
                     if (app.screenshots.isNotEmpty) ...[
-                      const SizedBox(height: 28),
-                      _SectionDivider(),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 26),
                       _SectionTitle(tr('معاينة', 'Preview')),
                       const SizedBox(height: 14),
                       SizedBox(
@@ -150,6 +135,21 @@ class _AppDetailScreenState extends State<AppDetailScreen> {
                           itemBuilder: (context, index) => _Screenshot(url: app.screenshots[index], onTap: () => _showPreview(index)),
                         ),
                       ),
+                      const SizedBox(height: 28),
+                      _SectionDivider(),
+                    ],
+                    const SizedBox(height: 20),
+                    _SectionTitle(tr('ما الجديد', "What's New")),
+                    const SizedBox(height: 10),
+                    Text(
+                      app.version.trim().isEmpty
+                          ? tr('معلومات الإصدار غير متوفرة', 'Version information is unavailable')
+                          : '${tr('الإصدار', 'Version')} ${app.version}',
+                      style: TextStyle(fontSize: 15, height: 1.55, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .72)),
+                    ),
+                    if (app.createdAt != null) ...[
+                      const SizedBox(height: 5),
+                      Text(_formatDate(app.createdAt!), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .42))),
                     ],
                     if (description.isNotEmpty) ...[
                       const SizedBox(height: 28),

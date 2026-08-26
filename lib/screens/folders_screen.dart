@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../services/folder_workspace_service.dart';
 import '../services/localized.dart';
+import '../services/signing_service.dart';
+import '../models/sign_models.dart';
+import 'sign_screen.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 
@@ -17,6 +20,8 @@ class FoldersScreen extends StatefulWidget {
 
 class _FoldersScreenState extends State<FoldersScreen> {
   final service = FolderWorkspaceService.instance;
+  final signing = SigningService();
+  final Map<String, Future<Map<String, dynamic>>> _appInfoCache = {};
   late String relativePath;
   List<FileSystemEntity> items = const [];
   bool loading = true;
@@ -134,8 +139,62 @@ class _FoldersScreenState extends State<FoldersScreen> {
     );
   }
 
+  bool _isAppBundle(FileSystemEntity entity) => entity is Directory && p.extension(entity.path).toLowerCase() == '.app';
+
+  Future<Map<String, dynamic>> _appInfo(Directory app) =>
+      _appInfoCache.putIfAbsent(app.path, () => signing.inspectIpa(app.path));
+
+  Future<int> _directorySize(Directory dir) async {
+    var total = 0;
+    try {
+      await for (final entity in dir.list(recursive: true, followLinks: false)) {
+        if (entity is File) total += await entity.length();
+      }
+    } catch (_) {}
+    return total;
+  }
+
+  Future<void> _signApp(Directory app) async {
+    Map<String, dynamic> info = const {};
+    try { info = await _appInfo(app); } catch (_) {}
+    final displayName = (info['displayName'] ?? '').toString().trim();
+    final model = ImportedFile(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      name: displayName.isEmpty ? p.basenameWithoutExtension(app.path) : displayName,
+      path: app.path,
+      kind: 'APP',
+      size: await _directorySize(app),
+      importedAt: DateTime.now(),
+      bundleId: (info['bundleId'] ?? '').toString(),
+      version: (info['version'] ?? '').toString(),
+      iconPath: (info['iconPath'] ?? '').toString(),
+    );
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      CupertinoPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: Text(tr('التوقيع', 'Sign'))),
+          body: SignScreen(preparedFile: model),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _installApp(Directory app) async {
+    try {
+      final ok = await signing.install(app.path);
+      if (mounted && !ok) {
+        showAppNotice(context, tr('تعذر فتح مثبت iOS.', 'iOS did not open the installer.'), type: AppNoticeType.error);
+      }
+    } catch (e) {
+      if (mounted) showAppNotice(context, '${tr('تعذر تثبيت التطبيق', 'Could not install app')}: $e', type: AppNoticeType.error);
+    }
+  }
+
   Future<void> _actions(FileSystemEntity entity) async {
     final isDir = entity is Directory;
+    final isApp = _isAppBundle(entity);
     final isZip = entity is File && p.extension(entity.path).toLowerCase() == '.zip';
     await showModalBottomSheet<void>(
       context: context,
@@ -150,6 +209,8 @@ class _FoldersScreenState extends State<FoldersScreen> {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               ListTile(leading: Icon(isDir ? CupertinoIcons.folder_fill : CupertinoIcons.doc_fill), title: Text(p.basename(entity.path), maxLines: 1, overflow: TextOverflow.ellipsis)),
               if (isZip) ListTile(leading: const Icon(CupertinoIcons.archivebox), title: Text(tr('استخراج إلى...', 'Extract to...')), onTap: () { Navigator.pop(ctx); _extract(entity); }),
+              if (isApp) ListTile(leading: const Icon(CupertinoIcons.signature), title: Text(tr('توقيع', 'Sign')), onTap: () { Navigator.pop(ctx); _signApp(entity as Directory); }),
+              if (isApp) ListTile(leading: const Icon(CupertinoIcons.arrow_down_circle), title: Text(tr('تثبيت', 'Install')), onTap: () { Navigator.pop(ctx); _installApp(entity as Directory); }),
               ListTile(leading: const Icon(CupertinoIcons.arrow_right_arrow_left), title: Text(tr('نقل', 'Move')), onTap: () async {
                 Navigator.pop(ctx);
                 final dest = await _chooseDestination(titleAr: 'نقل إلى', titleEn: 'Move to');
@@ -193,16 +254,32 @@ class _FoldersScreenState extends State<FoldersScreen> {
                   itemBuilder: (_, i) {
                     final e = items[i];
                     final isDir = e is Directory;
+                    final isApp = _isAppBundle(e);
+                    Widget tile({String? appName, String? iconPath}) => ListTile(
+                      leading: isApp && iconPath != null && iconPath.isNotEmpty && File(iconPath).existsSync()
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.file(File(iconPath), width: 44, height: 44, fit: BoxFit.cover),
+                            )
+                          : Icon(isApp ? CupertinoIcons.app_badge : isDir ? CupertinoIcons.folder_fill : CupertinoIcons.doc_fill, color: Theme.of(context).colorScheme.primary),
+                      title: Text(isApp && appName != null && appName.trim().isNotEmpty ? appName : p.basename(e.path), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: isApp ? Text(p.basename(e.path), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .45))) : null,
+                      trailing: IconButton(icon: const Icon(CupertinoIcons.ellipsis), onPressed: () => _actions(e)),
+                      onTap: isDir
+                          ? () => Navigator.push(context, CupertinoPageRoute(builder: (_) => FoldersScreen(initialRelativePath: relativePath.isEmpty ? p.basename(e.path) : p.join(relativePath, p.basename(e.path)))))
+                          : () => _actions(e),
+                    );
                     return GlassCard(
                       padding: EdgeInsets.zero,
-                      child: ListTile(
-                        leading: Icon(isDir ? CupertinoIcons.folder_fill : CupertinoIcons.doc_fill, color: Theme.of(context).colorScheme.primary),
-                        title: Text(p.basename(e.path), maxLines: 1, overflow: TextOverflow.ellipsis),
-                        trailing: IconButton(icon: const Icon(CupertinoIcons.ellipsis), onPressed: () => _actions(e)),
-                        onTap: isDir
-                            ? () => Navigator.push(context, CupertinoPageRoute(builder: (_) => FoldersScreen(initialRelativePath: relativePath.isEmpty ? p.basename(e.path) : p.join(relativePath, p.basename(e.path)))))
-                            : () => _actions(e),
-                      ),
+                      child: isApp
+                          ? FutureBuilder<Map<String, dynamic>>(
+                              future: _appInfo(e as Directory),
+                              builder: (_, snap) => tile(
+                                appName: snap.data?['displayName']?.toString(),
+                                iconPath: snap.data?['iconPath']?.toString(),
+                              ),
+                            )
+                          : tile(),
                     );
                   },
                 ),
@@ -212,6 +289,8 @@ class _FoldersScreenState extends State<FoldersScreen> {
 
 Future<String?> showFolderDestinationPicker(BuildContext context, {String? title}) async {
   final service = FolderWorkspaceService.instance;
+  final signing = SigningService();
+  final Map<String, Future<Map<String, dynamic>>> _appInfoCache = {};
   var current = '';
   return showModalBottomSheet<String>(
     context: context,

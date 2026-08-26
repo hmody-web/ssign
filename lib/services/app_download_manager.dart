@@ -114,6 +114,11 @@ class AppDownloadManager extends ChangeNotifier {
       notifyListeners();
       return file;
     } catch (e) {
+      if (control.isCancelled) {
+        _states.remove(app.id);
+        notifyListeners();
+        return null;
+      }
       _states[app.id] = AppDownloadSnapshot(error: e);
       notifyListeners();
       rethrow;
@@ -133,6 +138,16 @@ class AppDownloadManager extends ChangeNotifier {
       paused: control.isPaused,
       progress: current.progress,
     );
+    notifyListeners();
+  }
+
+  Future<void> cancel(RemoteApp app) async {
+    final control = _controls[app.id];
+    if (control != null) {
+      await control.cancel();
+    }
+    _states.remove(app.id);
+    _apps.remove(app.id);
     notifyListeners();
   }
 }

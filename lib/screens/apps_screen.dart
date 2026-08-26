@@ -406,11 +406,6 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Text('Booma | بــومـة', style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -1)),
-                            const SizedBox(height: 5),
-                            Text(
-                              tr('مكتبة تطبيقات IPA جاهزة للتنزيل والتوقيع', 'IPA library ready to download and sign'),
-                              style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5), fontSize: 13),
-                            ),
                           ],
                         ),
                       ),

@@ -36,7 +36,7 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     let path = recoverDocumentPath(rawPath)
     DispatchQueue.global(qos:.userInitiated).async {
       do {
-        let temp=try self.extractIPA(URL(fileURLWithPath:path), prefix:"inspect")
+        let temp=try self.prepareAppRoot(URL(fileURLWithPath:path), prefix:"inspect")
         defer { try? FileManager.default.removeItem(at: temp) }
         let app=try self.findApp(in: temp)
         let plistURL=app.appendingPathComponent("Info.plist")
@@ -113,7 +113,7 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     guard fm.fileExists(atPath: provision) else {
       throw NSError(domain:"Sign",code:3,userInfo:[NSLocalizedDescriptionKey:"Provisioning profile file is missing"])
     }
-    let root=try extractIPA(URL(fileURLWithPath:ipa),prefix:"sign")
+    let root=try prepareAppRoot(URL(fileURLWithPath:ipa),prefix:"sign")
     defer {try? FileManager.default.removeItem(at:root)}
     let app=try findApp(in:root)
     try updateInfoPlist(app:app,bundleId:"",displayName:"",version:str("version"),build:str("build"),removeDevices:(args["removeSupportedDevices"] as? Bool) ?? false)
@@ -146,6 +146,55 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     if FileManager.default.fileExists(atPath:out.path){try FileManager.default.removeItem(at:out)}
     try FileManager.default.zipItem(at:root,to:out,shouldKeepParent:false,compressionMethod:.deflate)
     return out.path
+  }
+
+  private func prepareAppRoot(_ source: URL, prefix: String) throws -> URL {
+    let fm = FileManager.default
+    var isDirectory: ObjCBool = false
+    guard fm.fileExists(atPath: source.path, isDirectory: &isDirectory) else {
+      throw NSError(domain: "Sign", code: 40, userInfo: [NSLocalizedDescriptionKey: "Application file is missing"])
+    }
+    if isDirectory.boolValue && source.pathExtension.lowercased() == "app" {
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent("Sign_\(prefix)_\(UUID().uuidString)", isDirectory: true)
+      let payload = root.appendingPathComponent("Payload", isDirectory: true)
+      try fm.createDirectory(at: payload, withIntermediateDirectories: true)
+      let copiedApp = payload.appendingPathComponent(source.lastPathComponent, isDirectory: true)
+      try fm.copyItem(at: source, to: copiedApp)
+      self.restoreExecutablePermissions(in: copiedApp)
+      return root
+    }
+    return try extractIPA(source, prefix: prefix)
+  }
+
+  private func restoreExecutablePermissions(in bundle: URL) {
+    let fm = FileManager.default
+    guard let enumerator = fm.enumerator(at: bundle, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return }
+    var bundleDirs = [bundle]
+    for case let url as URL in enumerator {
+      let ext = url.pathExtension.lowercased()
+      if ext == "app" || ext == "appex" || ext == "framework" { bundleDirs.append(url) }
+      if ext == "dylib" { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path) }
+    }
+    for dir in bundleDirs {
+      let plist = dir.appendingPathComponent("Info.plist")
+      guard let data = try? Data(contentsOf: plist),
+            let info = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any],
+            let executable = info["CFBundleExecutable"] as? String,
+            !executable.isEmpty else { continue }
+      let executableURL = dir.appendingPathComponent(executable)
+      if fm.fileExists(atPath: executableURL.path) {
+        try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
+      }
+    }
+  }
+
+  private func packageAppForInstall(_ source: URL) throws -> URL {
+    let root = try prepareAppRoot(source, prefix: "install-package")
+    let out = FileManager.default.temporaryDirectory.appendingPathComponent("Install_\(UUID().uuidString).ipa")
+    if FileManager.default.fileExists(atPath: out.path) { try FileManager.default.removeItem(at: out) }
+    try FileManager.default.zipItem(at: root, to: out, shouldKeepParent: false, compressionMethod: .deflate)
+    try? FileManager.default.removeItem(at: root)
+    return out
   }
 
   private func extractIPA(_ source:URL,prefix:String) throws -> URL {
@@ -297,19 +346,27 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
   private func install(_ args:[String:Any], result:@escaping FlutterResult) {
     guard let rawPath=args["path"] as? String else { result(FlutterError(code:"BAD_PATH",message:"Missing IPA path",details:nil)); return }
     let path = recoverDocumentPath(rawPath)
-    let ipa=URL(fileURLWithPath:path)
-    guard FileManager.default.fileExists(atPath:ipa.path) else { result(FlutterError(code:"NOT_FOUND",message:"Signed IPA not found",details:nil)); return }
+    let source=URL(fileURLWithPath:path)
+    guard FileManager.default.fileExists(atPath:source.path) else { result(FlutterError(code:"NOT_FOUND",message:"Application not found",details:nil)); return }
     DispatchQueue.global(qos:.userInitiated).async {
       do {
-        let root=try self.extractIPA(ipa,prefix:"install-info"); defer {try? FileManager.default.removeItem(at:root)}
+        var installIPA = source
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: source.path, isDirectory: &isDirectory), isDirectory.boolValue && source.pathExtension.lowercased() == "app" {
+          // Keep the temporary IPA alive while LocalInstallServer is serving it.
+          // iOS clears the temporary directory later automatically.
+          installIPA = try self.packageAppForInstall(source)
+        }
+        let root=try self.prepareAppRoot(installIPA,prefix:"install-info"); defer {try? FileManager.default.removeItem(at:root)}
         let app=try self.findApp(in:root); let data=try Data(contentsOf:app.appendingPathComponent("Info.plist"))
         let info=try PropertyListSerialization.propertyList(from:data,options:[],format:nil) as? [String:Any] ?? [:]
         let bundle=info["CFBundleIdentifier"] as? String ?? "app.sign.install"
         let version=info["CFBundleShortVersionString"] as? String ?? info["CFBundleVersion"] as? String ?? "1.0"
         let title=info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String ?? "App"
+        let finalInstallIPA = installIPA
         DispatchQueue.main.async {
           do {
-            _ = try self.installServer.start(ipa:ipa)
+            _ = try self.installServer.start(ipa:finalInstallIPA)
             var c=URLComponents(string:"https://api.palera.in/genPlist")!
             c.queryItems=[URLQueryItem(name:"bundleid",value:bundle),URLQueryItem(name:"name",value:title),URLQueryItem(name:"version",value:version),URLQueryItem(name:"fetchurl",value:self.installServer.ipaHTTPURL)]
             guard let manifestURL = c.url else { throw NSError(domain:"Sign",code:10,userInfo:[NSLocalizedDescriptionKey:"Could not create manifest URL"]) }

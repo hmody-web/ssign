@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../models/sign_models.dart';
+import '../models/remote_app.dart';
 import '../services/app_store.dart';
 import '../services/app_download_manager.dart';
 import '../services/folder_workspace_service.dart';
@@ -493,30 +494,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               ),
             ),
-            if (downloads.activeDownloads.isNotEmpty)
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
-                sliver: SliverToBoxAdapter(
-                  child: GlassCard(
-                    padding: const EdgeInsets.all(15),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(children: [Icon(CupertinoIcons.arrow_down_circle_fill, color: Theme.of(context).colorScheme.primary), const SizedBox(width: 8), Text(tr('جاري التنزيل', 'Downloading'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16))]),
-                      const SizedBox(height: 12),
-                      ...downloads.activeDownloads.map((e) {
-                        final snap = e.value;
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Row(children: [Expanded(child: Text(e.key.displayName(store.isArabic), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700))), Text(snap.progress == null ? tr('جاري التنزيل', 'Downloading') : '${(snap.progress! * 100).toStringAsFixed(0)}%')]),
-                            const SizedBox(height: 6),
-                            LinearProgressIndicator(value: snap.progress),
-                          ]),
-                        );
-                      }),
-                    ]),
-                  ),
-                ),
-              ),
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
               sliver: SliverToBoxAdapter(
@@ -604,7 +581,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                 ),
               ),
-            if (store.files.isEmpty)
+            if (store.files.isEmpty && downloads.activeDownloads.isEmpty)
               SliverFillRemaining(
                 hasScrollBody: false,
                 child: Center(
@@ -619,9 +596,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(18, 0, 18, 120),
                 sliver: SliverList.builder(
-                  itemCount: store.files.length,
+                  itemCount: downloads.activeDownloads.length + store.files.length,
                   itemBuilder: (_, i) {
-                    final f = store.files.reversed.toList()[i];
+                    final active = downloads.activeDownloads;
+                    if (i < active.length) {
+                      final entry = active[i];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _downloadingAppCard(context, entry.key, entry.value),
+                      );
+                    }
+
+                    final f = store.files.reversed.toList()[i - active.length];
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: GestureDetector(
@@ -673,6 +659,195 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ),
           ],
         ),
+      );
+
+  Future<void> _showDownloadActions(RemoteApp app, AppDownloadSnapshot snap) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+          child: GlassCard(
+            radius: 30,
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: SizedBox(
+                        width: 52,
+                        height: 52,
+                        child: app.iconUrl.trim().isEmpty
+                            ? _downloadIconFallback(context)
+                            : Image.network(
+                                app.iconUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => _downloadIconFallback(context),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            app.displayName(store.isArabic),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            snap.paused
+                                ? tr('التنزيل متوقف مؤقتاً', 'Download paused')
+                                : tr('جاري التنزيل', 'Downloading'),
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(CupertinoIcons.xmark_circle_fill),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                _actionTile(
+                  context,
+                  icon: snap.paused ? CupertinoIcons.play_fill : CupertinoIcons.pause_fill,
+                  title: snap.paused ? tr('استئناف التنزيل', 'Resume download') : tr('إيقاف مؤقت', 'Pause download'),
+                  subtitle: snap.paused
+                      ? tr('متابعة التنزيل من مكان توقفه', 'Continue this download')
+                      : tr('إيقاف التنزيل مؤقتاً بدون إلغائه', 'Temporarily pause without cancelling'),
+                  onTap: () {
+                    downloads.togglePause(app);
+                    Navigator.pop(ctx);
+                  },
+                ),
+                const SizedBox(height: 10),
+                _actionTile(
+                  context,
+                  icon: CupertinoIcons.xmark_circle,
+                  title: tr('إلغاء التنزيل', 'Cancel download'),
+                  subtitle: tr('إيقاف التنزيل وحذف الملف غير المكتمل', 'Stop downloading and remove the incomplete file'),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await downloads.cancel(app);
+                    if (mounted) {
+                      showAppNotice(context, tr('تم إلغاء التنزيل.', 'Download cancelled.'));
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _downloadingAppCard(BuildContext context, RemoteApp app, AppDownloadSnapshot snap) {
+    final progress = snap.progress;
+    final percent = progress == null ? null : (progress * 100).clamp(0, 100).round();
+    final subtitle = <String>[
+      'IPA',
+      if (app.version.trim().isNotEmpty) '${tr('الإصدار', 'v')} ${app.version.trim()}',
+      if (app.size > 0) _size(app.size),
+    ].join(' • ');
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPress: () => _showDownloadActions(app, snap),
+      child: GlassCard(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: SizedBox(
+              width: 52,
+              height: 52,
+              child: app.iconUrl.trim().isEmpty
+                  ? _downloadIconFallback(context)
+                  : Image.network(
+                      app.iconUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _downloadIconFallback(context),
+                      loadingBuilder: (context, child, loadingProgress) =>
+                          loadingProgress == null ? child : _downloadIconFallback(context),
+                    ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  app.displayName(store.isArabic),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48), fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 42,
+            height: 42,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CircularProgressIndicator(
+                  value: progress,
+                  strokeWidth: 3.4,
+                  strokeCap: StrokeCap.round,
+                  backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: .12),
+                ),
+                if (percent != null)
+                  Text(
+                    '$percent%',
+                    style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800),
+                  )
+                else
+                  Icon(CupertinoIcons.arrow_down, size: 17, color: Theme.of(context).colorScheme.primary),
+              ],
+            ),
+          ),
+        ],
+      ),
+      ),
+    );
+  }
+
+  Widget _downloadIconFallback(BuildContext context) => Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: .12),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Icon(CupertinoIcons.app_badge, color: Theme.of(context).colorScheme.primary),
       );
 
   Widget _appIcon(BuildContext context, ImportedFile f) {

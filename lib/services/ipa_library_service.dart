@@ -369,6 +369,9 @@ class IpaLibraryService {
     HttpClientResponse? response;
     IOSink? sink;
     try {
+      if (control?.isCancelled == true) {
+        return _DownloadResult(false, -1, uri, 'cancelled');
+      }
       final request = await _client.getUrl(uri);
       request.followRedirects = true;
       request.maxRedirects = 12;
@@ -402,6 +405,10 @@ class IpaLibraryService {
         );
       }
 
+      if (control?.isCancelled == true) {
+        return _DownloadResult(false, -1, uri, 'cancelled');
+      }
+
       sink = file.openWrite();
       var received = 0;
       final total =
@@ -425,7 +432,21 @@ class IpaLibraryService {
       );
       control?._attach(subscription);
       try {
-        await done.future;
+        if (control == null) {
+          await done.future;
+        } else {
+          await Future.any<void>([done.future, control.cancelled]);
+          if (control.isCancelled) {
+            await subscription.cancel();
+            await sink.flush();
+            await sink.close();
+            sink = null;
+            try {
+              if (await file.exists()) await file.delete();
+            } catch (_) {}
+            return _DownloadResult(false, -1, uri, 'cancelled');
+          }
+        }
       } finally {
         control?._detach(subscription);
       }
@@ -502,23 +523,46 @@ class _DownloadResult {
 class IpaDownloadControl {
   StreamSubscription<List<int>>? _subscription;
   bool _paused = false;
+  bool _cancelled = false;
+  final Completer<void> _cancelCompleter = Completer<void>();
 
   bool get isPaused => _paused;
+  bool get isCancelled => _cancelled;
+  Future<void> get cancelled => _cancelCompleter.future;
 
   void pause() {
+    if (_cancelled) return;
     _paused = true;
     _subscription?.pause();
   }
 
   void resume() {
+    if (_cancelled) return;
     _paused = false;
     _subscription?.resume();
   }
 
   void toggle() => _paused ? resume() : pause();
 
+  Future<void> cancel() async {
+    if (_cancelled) return;
+    _cancelled = true;
+    _paused = false;
+    if (!_cancelCompleter.isCompleted) _cancelCompleter.complete();
+    final sub = _subscription;
+    if (sub != null) {
+      try {
+        await sub.cancel();
+      } catch (_) {}
+    }
+  }
+
   void _attach(StreamSubscription<List<int>> subscription) {
     _subscription = subscription;
+    if (_cancelled) {
+      subscription.cancel();
+      return;
+    }
     if (_paused) subscription.pause();
   }
 
