@@ -32,7 +32,8 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
   }
 
   private func inspectIpa(_ args:[String:Any], result:@escaping FlutterResult) {
-    guard let path=args["ipaPath"] as? String else {result(FlutterError(code:"BAD_PATH",message:"Missing IPA path",details:nil));return}
+    guard let rawPath=args["ipaPath"] as? String else {result(FlutterError(code:"BAD_PATH",message:"Missing IPA path",details:nil));return}
+    let path = recoverDocumentPath(rawPath)
     DispatchQueue.global(qos:.userInitiated).async {
       do {
         let temp=try self.extractIPA(URL(fileURLWithPath:path), prefix:"inspect")
@@ -55,7 +56,10 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
   }
 
   private func inspectIdentity(_ args:[String:Any], result:@escaping FlutterResult) {
-    guard let p12Path=args["p12Path"] as? String, let password=args["password"] as? String, let provision=args["provisionPath"] as? String else {result(FlutterError(code:"BAD_IDENTITY",message:"Missing signing files",details:nil));return}
+    guard let rawP12Path=args["p12Path"] as? String, let password=args["password"] as? String, let rawProvision=args["provisionPath"] as? String else {result(FlutterError(code:"BAD_IDENTITY",message:"Missing signing files",details:nil));return}
+    let p12Path = recoverDocumentPath(rawP12Path)
+    let provision = recoverDocumentPath(rawProvision)
+    guard FileManager.default.fileExists(atPath:p12Path) else {result(FlutterError(code:"BAD_P12",message:"P12 certificate file not found",details:nil));return}
     guard FileManager.default.fileExists(atPath:provision) else {result(FlutterError(code:"BAD_PROVISION",message:"Provisioning profile not found",details:nil));return}
     do {
       let data=try Data(contentsOf:URL(fileURLWithPath:p12Path))
@@ -71,10 +75,44 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     } catch {result(FlutterError(code:"IDENTITY_INVALID",message:error.localizedDescription,details:nil))}
   }
 
+  private func recoverDocumentPath(_ rawPath: String) -> String {
+    guard !rawPath.isEmpty else { return rawPath }
+    let fm = FileManager.default
+    if fm.fileExists(atPath: rawPath) { return rawPath }
+
+    let fileName = URL(fileURLWithPath: rawPath).lastPathComponent
+    guard !fileName.isEmpty,
+          let docs = try? fm.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return rawPath }
+
+    for folder in ["Imports", "Signed", "AppIcons", ""] {
+      let candidate = folder.isEmpty ? docs.appendingPathComponent(fileName) : docs.appendingPathComponent(folder).appendingPathComponent(fileName)
+      if fm.fileExists(atPath: candidate.path) { return candidate.path }
+    }
+
+    if let enumerator = fm.enumerator(at: docs, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+      for case let url as URL in enumerator where url.lastPathComponent == fileName {
+        if fm.fileExists(atPath: url.path) { return url.path }
+      }
+    }
+    return rawPath
+  }
+
   private func signIpa(_ args:[String:Any]) throws -> String {
     func str(_ k:String)->String {(args[k] as? String) ?? ""}
-    let ipa=str("ipaPath"), p12=str("p12Path"), provision=str("provisionPath"), password=str("p12Password")
-    guard FileManager.default.fileExists(atPath:ipa),FileManager.default.fileExists(atPath:p12),FileManager.default.fileExists(atPath:provision) else {throw NSError(domain:"Sign",code:1,userInfo:[NSLocalizedDescriptionKey:"IPA, P12 or provisioning profile is missing"])}
+    let ipa=recoverDocumentPath(str("ipaPath"))
+    let p12=recoverDocumentPath(str("p12Path"))
+    let provision=recoverDocumentPath(str("provisionPath"))
+    let password=str("p12Password")
+    let fm = FileManager.default
+    guard fm.fileExists(atPath: ipa) else {
+      throw NSError(domain:"Sign",code:1,userInfo:[NSLocalizedDescriptionKey:"IPA file is missing"])
+    }
+    guard fm.fileExists(atPath: p12) else {
+      throw NSError(domain:"Sign",code:2,userInfo:[NSLocalizedDescriptionKey:"P12 certificate file is missing"])
+    }
+    guard fm.fileExists(atPath: provision) else {
+      throw NSError(domain:"Sign",code:3,userInfo:[NSLocalizedDescriptionKey:"Provisioning profile file is missing"])
+    }
     let root=try extractIPA(URL(fileURLWithPath:ipa),prefix:"sign")
     defer {try? FileManager.default.removeItem(at:root)}
     let app=try findApp(in:root)
@@ -257,7 +295,8 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
   }
 
   private func install(_ args:[String:Any], result:@escaping FlutterResult) {
-    guard let path=args["path"] as? String else { result(FlutterError(code:"BAD_PATH",message:"Missing IPA path",details:nil)); return }
+    guard let rawPath=args["path"] as? String else { result(FlutterError(code:"BAD_PATH",message:"Missing IPA path",details:nil)); return }
+    let path = recoverDocumentPath(rawPath)
     let ipa=URL(fileURLWithPath:path)
     guard FileManager.default.fileExists(atPath:ipa.path) else { result(FlutterError(code:"NOT_FOUND",message:"Signed IPA not found",details:nil)); return }
     DispatchQueue.global(qos:.userInitiated).async {
@@ -291,7 +330,8 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
   }
 
   private func share(_ args:[String:Any],result:@escaping FlutterResult){
-    guard let path=args["path"] as? String else {result(FlutterError(code:"BAD_PATH",message:"Missing path",details:nil));return}
+    guard let rawPath=args["path"] as? String else {result(FlutterError(code:"BAD_PATH",message:"Missing path",details:nil));return}
+    let path = recoverDocumentPath(rawPath)
     let url=URL(fileURLWithPath:path)
     guard FileManager.default.fileExists(atPath:url.path) else {result(FlutterError(code:"NOT_FOUND",message:"File not found",details:nil));return}
     guard let scene=UIApplication.shared.connectedScenes.compactMap({$0 as? UIWindowScene}).first(where:{$0.activationState == .foregroundActive}), let vc=scene.windows.first(where:{$0.isKeyWindow})?.rootViewController else {result(FlutterError(code:"NO_VIEW",message:"No active view controller",details:nil));return}

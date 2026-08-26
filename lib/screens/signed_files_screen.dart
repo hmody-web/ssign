@@ -5,6 +5,7 @@ import '../models/sign_models.dart';
 import '../services/app_store.dart';
 import '../services/localized.dart';
 import '../services/signing_service.dart';
+import '../services/persistent_path_service.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 
@@ -199,6 +200,47 @@ class _SignedFilesScreenState extends State<SignedFilesScreen> {
         ),
       ),
     );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _repairMissingIcons());
+  }
+
+  Future<void> _repairMissingIcons() async {
+    final snapshot = List<ImportedFile>.from(store.signedFiles);
+    for (final f in snapshot) {
+      final repairedIpa = await PersistentPathService.instance.resolveDataFile(f.path);
+      final repairedIcon = await PersistentPathService.instance.resolveIcon(
+        storedPath: f.iconPath,
+        bundleId: f.bundleId,
+      );
+      var current = f;
+      if ((repairedIpa != null && repairedIpa != f.path) ||
+          (repairedIcon != null && repairedIcon != f.iconPath)) {
+        current = f.copyWith(
+          path: repairedIpa ?? f.path,
+          iconPath: repairedIcon ?? f.iconPath ?? '',
+        );
+        await store.replaceFile(current);
+      }
+      final hasIcon = current.iconPath != null &&
+          current.iconPath!.isNotEmpty &&
+          File(current.iconPath!).existsSync();
+      final ipaPath = await PersistentPathService.instance.resolveDataFile(current.path);
+      if (hasIcon || ipaPath == null) continue;
+      try {
+        final info = await signer.inspectIpa(ipaPath);
+        final icon = (info['iconPath'] ?? '').toString().trim();
+        await store.replaceFile(current.copyWith(
+          path: ipaPath,
+          iconPath: icon.isEmpty ? (current.iconPath ?? '') : icon,
+          bundleId: (info['bundleId'] ?? current.bundleId ?? '').toString(),
+          version: (info['version'] ?? current.version ?? '').toString(),
+        ));
+      } catch (_) {}
+    }
   }
 
   @override

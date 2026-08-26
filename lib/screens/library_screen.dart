@@ -6,6 +6,7 @@ import '../services/app_store.dart';
 import '../services/file_import_service.dart';
 import '../services/signing_service.dart';
 import '../services/localized.dart';
+import '../services/persistent_path_service.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 import 'signed_files_screen.dart';
@@ -32,17 +33,46 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _backfillIpaMetadata() async {
-    final pending = store.files.where((f) => _isIpa(f) && (f.iconPath == null || f.iconPath!.isEmpty || !File(f.iconPath!).existsSync())).toList();
-    for (final f in pending) {
-      if (!File(f.path).existsSync()) continue;
+    // Repair paths saved by older builds first. This is important on iOS because
+    // the application-container prefix can change after an app update.
+    final snapshot = List<ImportedFile>.from(store.files);
+    for (final f in snapshot) {
+      if (!_isIpa(f)) continue;
+
+      final repairedIpa = await PersistentPathService.instance.resolveDataFile(f.path);
+      final repairedIcon = await PersistentPathService.instance.resolveIcon(
+        storedPath: f.iconPath,
+        bundleId: f.bundleId,
+      );
+
+      var current = f;
+      final pathChanged = repairedIpa != null && repairedIpa != f.path;
+      final iconChanged = repairedIcon != null && repairedIcon != f.iconPath;
+      if (pathChanged || iconChanged) {
+        current = f.copyWith(
+          path: repairedIpa ?? f.path,
+          iconPath: repairedIcon ?? f.iconPath ?? '',
+        );
+        await store.replaceFile(current);
+      }
+
+      // If there is still no icon, re-extract it from the IPA automatically.
+      final iconReady = current.iconPath != null &&
+          current.iconPath!.isNotEmpty &&
+          File(current.iconPath!).existsSync();
+      final ipaPath = await PersistentPathService.instance.resolveDataFile(current.path);
+      if (iconReady || ipaPath == null || !File(ipaPath).existsSync()) continue;
+
       try {
-        final info = await signer.inspectIpa(f.path);
+        final info = await signer.inspectIpa(ipaPath);
         final appName = (info['displayName'] ?? '').toString().trim();
-        final updated = f.copyWith(
-          name: appName.isEmpty ? f.name : appName,
-          bundleId: (info['bundleId'] ?? f.bundleId ?? '').toString(),
-          version: (info['version'] ?? f.version ?? '').toString(),
-          iconPath: (info['iconPath'] ?? f.iconPath ?? '').toString(),
+        final extractedIcon = (info['iconPath'] ?? '').toString().trim();
+        final updated = current.copyWith(
+          path: ipaPath,
+          name: appName.isEmpty ? current.name : appName,
+          bundleId: (info['bundleId'] ?? current.bundleId ?? '').toString(),
+          version: (info['version'] ?? current.version ?? '').toString(),
+          iconPath: extractedIcon.isEmpty ? (current.iconPath ?? '') : extractedIcon,
         );
         await store.replaceFile(updated);
       } catch (_) {}

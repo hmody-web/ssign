@@ -23,10 +23,10 @@ class ImportedFile {
     this.iconPath,
   });
 
-  ImportedFile copyWith({String? name, String? kind, String? bundleId, String? version, String? iconPath}) => ImportedFile(
+  ImportedFile copyWith({String? name, String? path, String? kind, String? bundleId, String? version, String? iconPath}) => ImportedFile(
     id: id,
     name: name ?? this.name,
-    path: path,
+    path: path ?? this.path,
     kind: kind ?? this.kind,
     size: size,
     importedAt: importedAt,

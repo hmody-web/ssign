@@ -389,7 +389,18 @@ class _SignScreenState extends State<SignScreen> {
       );
     } catch (e) {
       if (mounted) {
-        showAppNotice(context, '${tr('فشل التوقيع', 'Signing failed')}: $e', type: AppNoticeType.error);
+        final raw = e.toString();
+        String message;
+        if (raw.contains('P12 certificate file is missing')) {
+          message = tr('ملف شهادة P12 غير موجود. أعد إضافة الشهادة من قسم الشهادات.', 'The P12 certificate file is missing. Re-add the certificate from Certificates.');
+        } else if (raw.contains('Provisioning profile file is missing')) {
+          message = tr('ملف mobileprovision غير موجود. أعد إضافة الشهادة مع ملف provisioning.', 'The mobileprovision file is missing. Re-add the signing identity with its provisioning profile.');
+        } else if (raw.contains('IPA file is missing')) {
+          message = tr('ملف التطبيق IPA غير موجود. أعد تنزيله أو استيراده.', 'The IPA file is missing. Download or import it again.');
+        } else {
+          message = '${tr('فشل التوقيع', 'Signing failed')}: $raw';
+        }
+        showAppNotice(context, message, type: AppNoticeType.error);
       }
     } finally {
       if (mounted) {
