@@ -16,7 +16,8 @@ import '../widgets/glass_card.dart';
 class SignScreen extends StatefulWidget {
   final ImportedFile? preparedFile;
   final Key? topKey;
-  const SignScreen({super.key, this.preparedFile, this.topKey});
+  final VoidCallback? onSelectionCleared;
+  const SignScreen({super.key, this.preparedFile, this.topKey, this.onSelectionCleared});
 
   @override
   State<SignScreen> createState() => _SignScreenState();
@@ -39,6 +40,7 @@ class _SignScreenState extends State<SignScreen> {
   String? _copySuffix;
   String? _bundleBeforeCopies;
   String? _loadedPreparedPath;
+  String? _ignoredPreparedPath;
 
   final bundle = TextEditingController();
   final name = TextEditingController();
@@ -105,7 +107,9 @@ class _SignScreenState extends State<SignScreen> {
   void didUpdateWidget(covariant SignScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     final next = widget.preparedFile;
-    if (next != null && next.path != _loadedPreparedPath) {
+    if (next != null &&
+        next.path != _loadedPreparedPath &&
+        next.path != _ignoredPreparedPath) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _loadImportedFile(next));
     }
   }
@@ -141,6 +145,7 @@ class _SignScreenState extends State<SignScreen> {
   Future<void> _loadImportedFile(ImportedFile file) async {
     if (!mounted) return;
     _loadedPreparedPath = file.path;
+    _ignoredPreparedPath = null;
     setState(() {
       _resetCopies();
       ipaPath = file.path;
@@ -171,6 +176,13 @@ class _SignScreenState extends State<SignScreen> {
 
 
   Future<void> _clearSelectedApp() async {
+    final selectedPath = ipaPath;
+    // If this file was supplied by another tab, remember that the user explicitly
+    // dismissed it. Otherwise a parent rebuild can feed the same preparedFile back
+    // into this screen immediately, which caused the old "flash then reappears" bug.
+    if (selectedPath != null && widget.preparedFile?.path == selectedPath) {
+      _ignoredPreparedPath = selectedPath;
+    }
     setState(() {
       ipaPath = null;
       iconPath = null;
@@ -182,6 +194,7 @@ class _SignScreenState extends State<SignScreen> {
       version.clear();
       buildCtrl.clear();
     });
+    widget.onSelectionCleared?.call();
     await store.clearSignDraft();
   }
 
@@ -194,6 +207,7 @@ class _SignScreenState extends State<SignScreen> {
       return;
     }
     final f = ipaFiles.first;
+    _ignoredPreparedPath = null;
     setState(() {
       _resetCopies();
       ipaPath = f.path;
@@ -418,6 +432,9 @@ class _SignScreenState extends State<SignScreen> {
           ),
         ),
       );
+      if (mounted) {
+        await _clearSelectedApp();
+      }
     } catch (e) {
       if (mounted) {
         final raw = e.toString();
@@ -490,22 +507,8 @@ class _SignScreenState extends State<SignScreen> {
                               : name.text,
                       _chooseIpa,
                       selected: ipaPath != null,
+                      onClear: ipaPath != null && !busy ? _clearSelectedApp : null,
                     ),
-                    if (ipaPath != null) ...[
-                      const SizedBox(height: 10),
-                      Align(
-                        alignment: AlignmentDirectional.centerEnd,
-                        child: FilledButton.icon(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFF767676),
-                            foregroundColor: Colors.white,
-                          ),
-                          onPressed: busy ? null : _clearSelectedApp,
-                          icon: const Icon(CupertinoIcons.xmark, size: 18),
-                          label: Text(tr('إلغاء', 'Cancel')),
-                        ),
-                      ),
-                    ],
                     const Divider(height: 28),
                     if (identity == null)
                       Row(
@@ -634,8 +637,8 @@ class _SignScreenState extends State<SignScreen> {
                       contentPadding: EdgeInsets.zero,
                       value: removeDevices,
                       onChanged: (v) { setState(() => removeDevices = v); _persistDraft(); },
-                      title: Text(tr('إزالة قيود UIDeviceFamily', 'Remove UIDeviceFamily restrictions')),
-                      subtitle: Text(tr('خيار توافق إضافي', 'Optional compatibility tweak')),
+                      title: Text(tr('إزالة قائمة الأجهزة المقيدة', 'Remove restricted-device list')),
+                      subtitle: Text(tr('يحافظ على UIDeviceFamily وخصائص العرض لمنع مشاكل أبعاد الشاشة', 'Keeps UIDeviceFamily and display metadata intact to avoid screen-size issues')),
                     ),
                   ],
                 ),
@@ -718,7 +721,14 @@ class _SignScreenState extends State<SignScreen> {
         child: Icon(CupertinoIcons.app_badge, size: 32, color: Theme.of(context).colorScheme.primary),
       );
 
-  Widget _picker(IconData icon, String title, String subtitle, VoidCallback action, {bool selected = false}) => Row(
+  Widget _picker(
+    IconData icon,
+    String title,
+    String subtitle,
+    VoidCallback action, {
+    bool selected = false,
+    Future<void> Function()? onClear,
+  }) => Row(
         children: [
           Container(
             width: 44,
@@ -755,6 +765,23 @@ class _SignScreenState extends State<SignScreen> {
             icon: Icon(selected ? CupertinoIcons.checkmark_circle_fill : CupertinoIcons.folder_fill, size: 18),
             label: Text(selected ? tr('تم الاختيار', 'Selected') : tr('اختيار', 'Choose')),
           ),
+          if (selected && onClear != null) ...[
+            const SizedBox(width: 7),
+            SizedBox(
+              width: 42,
+              height: 42,
+              child: FilledButton.tonal(
+                style: FilledButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  backgroundColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: .09),
+                  foregroundColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: .78),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+                ),
+                onPressed: () => onClear(),
+                child: const Icon(CupertinoIcons.xmark, size: 18),
+              ),
+            ),
+          ],
         ],
       );
 }

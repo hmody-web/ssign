@@ -71,7 +71,15 @@ class _HomeShellState extends State<HomeShell> {
               children: [
                 AppsScreen(onSignRequested: _openSignForFile, topKey: _topKeys[0]),
                 LibraryScreen(onSignRequested: _openSignForFile, topKey: _topKeys[1]),
-                SignScreen(preparedFile: _preparedSignFile, topKey: _topKeys[2]),
+                SignScreen(
+                  preparedFile: _preparedSignFile,
+                  topKey: _topKeys[2],
+                  onSelectionCleared: () {
+                    if (_preparedSignFile != null) {
+                      setState(() => _preparedSignFile = null);
+                    }
+                  },
+                ),
                 SettingsScreen(topKey: _topKeys[3]),
               ],
             ),

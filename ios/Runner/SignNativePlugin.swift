@@ -116,13 +116,47 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     let root=try prepareAppRoot(URL(fileURLWithPath:ipa),prefix:"sign")
     defer {try? FileManager.default.removeItem(at:root)}
     let app=try findApp(in:root)
-    try updateInfoPlist(app:app,bundleId:"",displayName:"",version:str("version"),build:str("build"),removeDevices:(args["removeSupportedDevices"] as? Bool) ?? false)
+
+    // Read the original metadata before touching Info.plist. The signing screen pre-fills
+    // these fields, so blindly sending the same values back through the signing engine
+    // caused some IPAs to be unnecessarily rewritten. For apps that rely on legacy or
+    // custom launch-screen metadata this can make iOS launch them in compatibility mode
+    // (the visible black bars / reduced viewport issue).
+    let originalInfo = try readInfoPlist(app: app)
+    let originalBundle = (originalInfo["CFBundleIdentifier"] as? String) ?? ""
+    let originalName = (originalInfo["CFBundleDisplayName"] as? String)
+      ?? (originalInfo["CFBundleName"] as? String)
+      ?? ""
+    let originalVersion = (originalInfo["CFBundleShortVersionString"] as? String) ?? ""
+    let originalBuild = (originalInfo["CFBundleVersion"] as? String) ?? ""
+
+    let requestedBundleRaw = str("bundleId").trimmingCharacters(in: .whitespacesAndNewlines)
+    let requestedNameRaw = str("displayName").trimmingCharacters(in: .whitespacesAndNewlines)
+    let requestedVersionRaw = str("version").trimmingCharacters(in: .whitespacesAndNewlines)
+    let requestedBuildRaw = str("build").trimmingCharacters(in: .whitespacesAndNewlines)
+
+    let bundleChanged = !requestedBundleRaw.isEmpty && requestedBundleRaw != originalBundle
+    let nameChanged = !requestedNameRaw.isEmpty && requestedNameRaw != originalName
+    let versionChanged = !requestedVersionRaw.isEmpty && requestedVersionRaw != originalVersion
+    let buildChanged = !requestedBuildRaw.isEmpty && requestedBuildRaw != originalBuild
+
+    try updateInfoPlist(
+      app: app,
+      bundleId: "", // Bundle ID changes are left to zsign so entitlements stay consistent.
+      displayName: nameChanged ? requestedNameRaw : "",
+      version: versionChanged ? requestedVersionRaw : "",
+      build: buildChanged ? requestedBuildRaw : "",
+      removeDevices: (args["removeSupportedDevices"] as? Bool) ?? false
+    )
+
     let requestedIcon = str("iconPath")
     if !requestedIcon.isEmpty { try replaceAppIcons(app: app, iconPath: requestedIcon) }
     // ZSignApple SignFolder expects the extracted IPA root that CONTAINS Payload, not Payload itself.
     let signingRoot = root.path
-    let requestedBundle = str("bundleId")
-    let requestedName = str("displayName")
+    // IMPORTANT: pass empty values when they did not actually change. This keeps zsign in
+    // pure re-sign mode and preserves the IPA's launch/display metadata exactly.
+    let requestedBundle = bundleChanged ? requestedBundleRaw : ""
+    let requestedName = "" // Display name was safely patched above without invoking zsign's bundle editor.
     let code = signingRoot.withCString { cPath in
       p12.withCString { cCert in
         p12.withCString { cKey in
@@ -303,6 +337,12 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     }
   }
 
+  private func readInfoPlist(app: URL) throws -> [String: Any] {
+    let url = app.appendingPathComponent("Info.plist")
+    let data = try Data(contentsOf: url)
+    return try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] ?? [:]
+  }
+
   private func updateInfoPlist(app:URL,bundleId:String,displayName:String,version:String,build:String,removeDevices:Bool) throws {
     let url=app.appendingPathComponent("Info.plist")
     let data=try Data(contentsOf:url)
@@ -311,7 +351,12 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     if !displayName.isEmpty {obj["CFBundleDisplayName"]=displayName;obj["CFBundleName"]=displayName}
     if !version.isEmpty {obj["CFBundleShortVersionString"]=version}
     if !build.isEmpty {obj["CFBundleVersion"]=build}
-    if removeDevices {obj.removeValue(forKey:"UIDeviceFamily");obj.removeValue(forKey:"UIRequiredDeviceCapabilities")}
+    if removeDevices {
+      // UIDeviceFamily is part of the app's target-device/display contract. Removing it
+      // can make iOS choose a compatibility presentation for some apps. Only remove the
+      // explicit per-model restriction list and keep all display/launch capability keys.
+      obj.removeValue(forKey:"UISupportedDevices")
+    }
     let out=try PropertyListSerialization.data(fromPropertyList:obj,format:.binary,options:0)
     try out.write(to:url,options:.atomic)
   }
