@@ -5,6 +5,7 @@ import '../models/sign_models.dart';
 import '../services/app_store.dart';
 import '../services/localized.dart';
 import '../services/signing_service.dart';
+import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 
 class SignedFilesScreen extends StatefulWidget {
@@ -114,7 +115,7 @@ class _SignedFilesScreenState extends State<SignedFilesScreen> {
                           Navigator.pop(dialogContext);
                           final ok = await signer.install(file.path);
                           if (mounted && !ok) {
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تعذر فتح مثبت iOS.', 'iOS did not open the installer.'))));
+                            showAppNotice(context, tr('تعذر فتح مثبت iOS.', 'iOS did not open the installer.'), type: AppNoticeType.error);
                           }
                         },
                       ),
@@ -202,9 +203,9 @@ class _SignedFilesScreenState extends State<SignedFilesScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        backgroundColor: Colors.transparent,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(
-          backgroundColor: Colors.transparent,
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
           scrolledUnderElevation: 0,
           title: Text(tr('الملفات الموقعة', 'Signed Files')),
           actions: [

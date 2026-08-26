@@ -8,6 +8,7 @@ import '../services/app_store.dart';
 import '../services/file_import_service.dart';
 import '../services/signing_service.dart';
 import '../services/localized.dart';
+import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 
 class CertificatesScreen extends StatefulWidget {
@@ -92,7 +93,7 @@ class _CertificatesScreenState extends State<CertificatesScreen> {
                         if (ctx.mounted) Navigator.pop(ctx);
                       } catch (e) {
                         setLocal(() => busy = false);
-                        if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('${tr('فشل التحقق من الشهادة', 'Certificate validation failed')}: $e')));
+                        if (ctx.mounted) showAppNotice(ctx, '${tr('فشل التحقق من الشهادة', 'Certificate validation failed')}: $e', type: AppNoticeType.error);
                       }
                     },
                     child: busy ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)) : Text(tr('حفظ الشهادة', 'Save Identity')),

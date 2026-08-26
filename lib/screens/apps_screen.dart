@@ -11,8 +11,49 @@ import '../services/app_download_manager.dart';
 import '../services/app_store.dart';
 import '../services/ipa_library_service.dart';
 import '../services/localized.dart';
+import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 import 'app_detail_screen.dart';
+
+
+const Map<String, String> _categoryAr = {
+  'games': 'ألعاب',
+  'game': 'ألعاب',
+  'social': 'تواصل اجتماعي',
+  'social networking': 'تواصل اجتماعي',
+  'photo & video': 'صور وفيديو',
+  'photo': 'صور',
+  'video': 'فيديو',
+  'music': 'موسيقى',
+  'entertainment': 'ترفيه',
+  'utilities': 'أدوات',
+  'utility': 'أدوات',
+  'tools': 'أدوات',
+  'business': 'أعمال',
+  'education': 'تعليم',
+  'productivity': 'إنتاجية',
+  'finance': 'مال وأعمال',
+  'shopping': 'تسوق',
+  'lifestyle': 'نمط حياة',
+  'health & fitness': 'صحة ولياقة',
+  'health': 'صحة ولياقة',
+  'sports': 'رياضة',
+  'travel': 'سفر',
+  'navigation': 'ملاحة',
+  'news': 'أخبار',
+  'weather': 'طقس',
+  'food & drink': 'طعام وشراب',
+  'food': 'طعام وشراب',
+  'books': 'كتب',
+  'reference': 'مراجع',
+  'medical': 'طب',
+  'developer tools': 'أدوات المطور',
+  'graphics & design': 'رسوم وتصميم',
+};
+
+String _categoryArabic(String category) => _categoryAr[category.trim().toLowerCase()] ?? category.trim();
+String _categoryDisplay(String category, bool isArabic) => isArabic ? _categoryArabic(category) : category.trim();
+String _normalizeSearch(String value) => value.trim().toLowerCase();
 
 class AppsScreen extends StatefulWidget {
   final ValueChanged<ImportedFile>? onSignRequested;
@@ -52,7 +93,20 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   bool get wantKeepAlive => true;
 
   List<RemoteApp> get _visibleApps {
-    final source = _searchController.text.trim().isEmpty ? _apps : (_searchResults ?? const <RemoteApp>[]);
+    final term = _normalizeSearch(_searchController.text);
+    List<RemoteApp> source;
+    if (term.isEmpty) {
+      source = List<RemoteApp>.from(_apps);
+    } else {
+      final merged = <String, RemoteApp>{for (final app in _searchResults ?? const <RemoteApp>[]) app.id: app};
+      for (final app in _apps) {
+        final haystack = [
+          app.name, app.nameAr, app.subtitle, app.subtitleAr, app.developerName, app.category, _categoryArabic(app.category),
+        ].join(' ').toLowerCase();
+        if (haystack.contains(term)) merged[app.id] = app;
+      }
+      source = merged.values.toList();
+    }
     final category = _selectedCategory?.trim().toLowerCase();
     if (category == null || category.isEmpty) return source;
     return source.where((app) => app.category.trim().toLowerCase() == category).toList();
@@ -260,13 +314,17 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     try {
       final file = await _downloads.start(app);
       if (!mounted || file == null) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr('تم تنزيل التطبيق وإضافته إلى الملفات', 'App downloaded and added to Files'))),
+      showAppNotice(
+        context,
+        tr('تم تنزيل التطبيق وإضافته إلى الملفات', 'App downloaded and added to Files'),
+        type: AppNoticeType.success,
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${tr('فشل تنزيل التطبيق', 'Download failed')}: ${_friendlyError(e)}')),
+      showAppNotice(
+        context,
+        '${tr('فشل تنزيل التطبيق', 'Download failed')}: ${_friendlyError(e)}',
+        type: AppNoticeType.error,
       );
     }
   }
@@ -386,6 +444,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
                     if (_categories.isNotEmpty)
                       _CategoryShelf(
                         categories: _categories,
+                        isArabic: isArabic,
                         selected: _selectedCategory,
                         onChanged: (value) => setState(() => _selectedCategory = value),
                       ),
@@ -477,21 +536,50 @@ class _CircleAction extends StatelessWidget {
 
 class _CategoryShelf extends StatelessWidget {
   final List<String> categories;
+  final bool isArabic;
   final String? selected;
   final ValueChanged<String?> onChanged;
-  const _CategoryShelf({required this.categories, required this.selected, required this.onChanged});
+  const _CategoryShelf({required this.categories, required this.isArabic, required this.selected, required this.onChanged});
 
   IconData _iconFor(String category) {
     final c = category.toLowerCase();
     if (c.contains('game') || c.contains('لعب')) return CupertinoIcons.game_controller_solid;
     if (c.contains('social') || c.contains('تواصل')) return CupertinoIcons.person_2_fill;
-    if (c.contains('photo') || c.contains('صور')) return CupertinoIcons.photo_fill;
+    if (c.contains('photo') || c.contains('صور')) return CupertinoIcons.camera_fill;
     if (c.contains('video') || c.contains('فيديو')) return CupertinoIcons.play_rectangle_fill;
     if (c.contains('music') || c.contains('موسي')) return CupertinoIcons.music_note_2;
-    if (c.contains('tool') || c.contains('أدوات') || c.contains('ادوات')) return CupertinoIcons.wrench_fill;
+    if (c.contains('entertain') || c.contains('ترفيه')) return CupertinoIcons.tv_fill;
+    if (c.contains('tool') || c.contains('utilit') || c.contains('أدوات') || c.contains('ادوات')) return CupertinoIcons.wrench_fill;
     if (c.contains('business') || c.contains('عمل')) return CupertinoIcons.briefcase_fill;
     if (c.contains('education') || c.contains('تعليم')) return CupertinoIcons.book_fill;
-    return CupertinoIcons.square_grid_2x2_fill;
+    if (c.contains('productiv') || c.contains('إنتاج')) return Icons.task_alt_rounded;
+    if (c.contains('finance') || c.contains('مال')) return Icons.account_balance_wallet_rounded;
+    if (c.contains('shopping') || c.contains('تسوق')) return CupertinoIcons.bag_fill;
+    if (c.contains('lifestyle') || c.contains('نمط')) return CupertinoIcons.sparkles;
+    if (c.contains('health') || c.contains('fitness') || c.contains('صحة')) return CupertinoIcons.heart_fill;
+    if (c.contains('sport') || c.contains('رياض')) return Icons.sports_soccer_rounded;
+    if (c.contains('travel') || c.contains('سفر')) return CupertinoIcons.airplane;
+    if (c.contains('navigation') || c.contains('ملاح')) return CupertinoIcons.location_fill;
+    if (c.contains('news') || c.contains('أخبار')) return CupertinoIcons.news_solid;
+    if (c.contains('weather') || c.contains('طقس')) return CupertinoIcons.cloud_sun_fill;
+    if (c.contains('food') || c.contains('طعام')) return CupertinoIcons.cart_fill;
+    if (c.contains('book') || c.contains('كتب')) return Icons.menu_book_rounded;
+    if (c.contains('reference') || c.contains('مراجع')) return CupertinoIcons.doc_text_fill;
+    if (c.contains('medical') || c.contains('طب')) return Icons.medical_services_rounded;
+    if (c.contains('developer') || c.contains('مطور')) return Icons.code_rounded;
+    if (c.contains('design') || c.contains('graphics') || c.contains('تصميم')) return Icons.palette_rounded;
+    const fallback = <IconData>[
+      Icons.view_in_ar_rounded,
+      Icons.layers_rounded,
+      CupertinoIcons.star_fill,
+      CupertinoIcons.compass_fill,
+      CupertinoIcons.bolt_fill,
+      Icons.apps_rounded,
+      Icons.rocket_launch_rounded,
+      CupertinoIcons.app_fill,
+    ];
+    final hash = c.codeUnits.fold<int>(0, (v, e) => (v * 31 + e) & 0x7fffffff);
+    return fallback[hash % fallback.length];
   }
 
   @override
@@ -521,10 +609,11 @@ class _CategoryShelf extends StatelessWidget {
           separatorBuilder: (_, __) => const SizedBox(width: 9),
           itemBuilder: (context, index) {
             final isAll = index == 0;
-            final category = isAll ? tr('الكل', 'All') : categories[index - 1];
-            final active = isAll ? allSelected : selected == category;
+            final rawCategory = isAll ? '' : categories[index - 1];
+            final category = isAll ? tr('الكل', 'All') : _categoryDisplay(rawCategory, isArabic);
+            final active = isAll ? allSelected : selected == rawCategory;
             return GestureDetector(
-              onTap: () => onChanged(isAll ? null : category),
+              onTap: () => onChanged(isAll ? null : rawCategory),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 250),
                 curve: Curves.easeOutCubic,
@@ -538,7 +627,7 @@ class _CategoryShelf extends StatelessWidget {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(isAll ? CupertinoIcons.square_grid_2x2_fill : _iconFor(category), size: 23, color: active ? primary : Theme.of(context).colorScheme.onSurface.withValues(alpha: .58)),
+                    Icon(isAll ? CupertinoIcons.square_grid_2x2_fill : _iconFor(rawCategory), size: 23, color: active ? primary : Theme.of(context).colorScheme.onSurface.withValues(alpha: .58)),
                     const SizedBox(height: 7),
                     Text(category, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: TextStyle(fontSize: 10.5, fontWeight: active ? FontWeight.w800 : FontWeight.w600, color: active ? primary : Theme.of(context).colorScheme.onSurface.withValues(alpha: .72))),
                   ],
@@ -692,7 +781,6 @@ class _FeaturedBannerCardState extends State<_FeaturedBannerCard> with SingleTic
               builder: (context, _) {
                 final t = _shineController.value;
                 final travel = 1.5 - (3.0 * t);
-                final glow = .28 + (.18 * math.sin(t * math.pi * 2).abs());
                 return Stack(
                   fit: StackFit.expand,
                   children: [
@@ -704,7 +792,7 @@ class _FeaturedBannerCardState extends State<_FeaturedBannerCard> with SingleTic
                           width: 62,
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              colors: [Colors.white.withValues(alpha: 0), Colors.white.withValues(alpha: .25), Colors.white.withValues(alpha: .62), Colors.white.withValues(alpha: .18), Colors.white.withValues(alpha: 0)],
+                              colors: [Colors.white.withValues(alpha: 0), Colors.white.withValues(alpha: .06), Colors.white.withValues(alpha: .20), Colors.white.withValues(alpha: .06), Colors.white.withValues(alpha: 0)],
                             ),
                           ),
                         ),
@@ -713,8 +801,6 @@ class _FeaturedBannerCardState extends State<_FeaturedBannerCard> with SingleTic
                     Container(
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(28),
-                        border: Border.all(color: Colors.white.withValues(alpha: glow), width: 1.15),
-                        boxShadow: [BoxShadow(color: Colors.white.withValues(alpha: glow * .25), blurRadius: 10, spreadRadius: -.5)],
                       ),
                     ),
                   ],
@@ -814,7 +900,7 @@ class _AppCard extends StatelessWidget {
                     children: [
                       if (app.version.isNotEmpty) _meta(context, 'v${app.version}'),
                       if (app.size > 0) _meta(context, _size(app.size)),
-                      if (app.category.isNotEmpty) _meta(context, app.category),
+                      if (app.category.isNotEmpty) _meta(context, _categoryDisplay(app.category, isArabic)),
                     ],
                   ),
                 ],
@@ -883,7 +969,7 @@ class _DownloadAction extends StatelessWidget {
     if (state.file != null) {
       return FilledButton(
         onPressed: onSign,
-        style: FilledButton.styleFrom(minimumSize: const Size(82, 36), padding: const EdgeInsets.symmetric(horizontal: 18), shape: const StadiumBorder()),
+        style: FilledButton.styleFrom(backgroundColor: Colors.grey.shade600, foregroundColor: Colors.white, minimumSize: const Size(82, 36), padding: const EdgeInsets.symmetric(horizontal: 18), shape: const StadiumBorder()),
         child: Text(tr('توقيع', 'Sign'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
       );
     }

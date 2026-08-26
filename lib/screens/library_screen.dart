@@ -6,6 +6,7 @@ import '../services/app_store.dart';
 import '../services/file_import_service.dart';
 import '../services/signing_service.dart';
 import '../services/localized.dart';
+import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 import 'signed_files_screen.dart';
 
@@ -23,6 +24,30 @@ class _LibraryScreenState extends State<LibraryScreen> {
   final signer = SigningService();
   bool selecting = false;
   final Set<String> selected = {};
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _backfillIpaMetadata());
+  }
+
+  Future<void> _backfillIpaMetadata() async {
+    final pending = store.files.where((f) => _isIpa(f) && (f.iconPath == null || f.iconPath!.isEmpty || !File(f.iconPath!).existsSync())).toList();
+    for (final f in pending) {
+      if (!File(f.path).existsSync()) continue;
+      try {
+        final info = await signer.inspectIpa(f.path);
+        final appName = (info['displayName'] ?? '').toString().trim();
+        final updated = f.copyWith(
+          name: appName.isEmpty ? f.name : appName,
+          bundleId: (info['bundleId'] ?? f.bundleId ?? '').toString(),
+          version: (info['version'] ?? f.version ?? '').toString(),
+          iconPath: (info['iconPath'] ?? f.iconPath ?? '').toString(),
+        );
+        await store.replaceFile(updated);
+      } catch (_) {}
+    }
+  }
 
   void _toggleSelection(ImportedFile file) {
     setState(() {
@@ -170,8 +195,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       Navigator.pop(ctx);
                       final ok = await signer.install(file.path);
                       if (mounted && !ok) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(tr('تعذر فتح مثبت iOS.', 'iOS did not open the installer.'))),
+                        showAppNotice(
+                          context,
+                          tr('تعذر فتح مثبت iOS.', 'iOS did not open the installer.'),
+                          type: AppNoticeType.error,
                         );
                       }
                     },

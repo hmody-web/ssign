@@ -39,7 +39,7 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _goToPage(int page) {
-    if (page == index) return;
+    if (page < 0 || page > 3) return;
     _pageController.animateToPage(
       page,
       duration: const Duration(milliseconds: 360),
@@ -56,13 +56,9 @@ class _HomeShellState extends State<HomeShell> {
             bottom: false,
             child: PageView(
               controller: _pageController,
-              physics: const BouncingScrollPhysics(
-                parent: PageScrollPhysics(),
-              ),
+              physics: const BouncingScrollPhysics(parent: PageScrollPhysics()),
               onPageChanged: (page) {
-                if (index != page) {
-                  setState(() => index = page);
-                }
+                if (index != page) setState(() => index = page);
               },
               children: [
                 AppsScreen(onSignRequested: _openSignForFile),
@@ -72,62 +68,261 @@ class _HomeShellState extends State<HomeShell> {
               ],
             ),
           ),
-          bottomNavigationBar: SafeArea(
-            top: false,
-            minimum: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(28),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-                child: Container(
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surface
-                        .withValues(alpha: .68),
-                    border: Border.all(
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white.withValues(alpha: .10)
-                          : Colors.white.withValues(alpha: .82),
-                    ),
-                    borderRadius: BorderRadius.circular(28),
-                  ),
-                  child: NavigationBar(
-                    height: 72,
-                    backgroundColor: Colors.transparent,
-                    indicatorColor: Theme.of(context)
-                        .colorScheme
-                        .primary
-                        .withValues(alpha: .18),
-                    selectedIndex: index,
-                    onDestinationSelected: _goToPage,
-                    destinations: [
-                      NavigationDestination(
-                        icon: const Icon(CupertinoIcons.square_grid_2x2),
-                        selectedIcon: const Icon(CupertinoIcons.square_grid_2x2_fill),
-                        label: tr('بــومـة', 'Booma'),
-                      ),
-                      NavigationDestination(
-                        icon: const Icon(CupertinoIcons.folder),
-                        selectedIcon: const Icon(CupertinoIcons.folder_fill),
-                        label: tr('الملفات', 'Files'),
-                      ),
-                      NavigationDestination(
-                        icon: const Icon(CupertinoIcons.signature),
-                        label: tr('التوقيع', 'Sign'),
-                      ),
-                      NavigationDestination(
-                        icon: const Icon(CupertinoIcons.gear),
-                        selectedIcon: const Icon(CupertinoIcons.gear_solid),
-                        label: tr('الإعدادات', 'Settings'),
-                      ),
-                    ],
-                  ),
+          bottomNavigationBar: _BottomNavigationLayer(
+            controller: _pageController,
+            selectedIndex: index,
+            onSelected: _goToPage,
+          ),
+        ),
+      );
+}
+
+class _BottomNavigationLayer extends StatelessWidget {
+  final PageController controller;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  const _BottomNavigationLayer({
+    required this.controller,
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = Theme.of(context).scaffoldBackgroundColor;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    return SizedBox(
+      height: 82 + bottomInset,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [
+                    bg,
+                    bg.withValues(alpha: .96),
+                    bg.withValues(alpha: .66),
+                    bg.withValues(alpha: 0),
+                  ],
+                  stops: const [0, .32, .68, 1],
                 ),
               ),
             ),
           ),
+          SafeArea(
+            top: false,
+            minimum: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: _SlidingBottomBar(
+                controller: controller,
+                selectedIndex: selectedIndex,
+                onSelected: onSelected,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SlidingBottomBar extends StatefulWidget {
+  final PageController controller;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  const _SlidingBottomBar({
+    required this.controller,
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  @override
+  State<_SlidingBottomBar> createState() => _SlidingBottomBarState();
+}
+
+class _SlidingBottomBarState extends State<_SlidingBottomBar> {
+  double? _dragLogicalPosition;
+  double? _heldTargetPosition;
+  bool _isTouchingBar = false;
+
+  static const _items = <_BottomItem>[
+    _BottomItem(CupertinoIcons.square_grid_2x2, CupertinoIcons.square_grid_2x2_fill, 'بــومـة', 'Booma'),
+    _BottomItem(CupertinoIcons.folder, CupertinoIcons.folder_fill, 'الملفات', 'Files'),
+    _BottomItem(CupertinoIcons.signature, CupertinoIcons.signature, 'التوقيع', 'Sign'),
+    _BottomItem(CupertinoIcons.gear, CupertinoIcons.gear_solid, 'الإعدادات', 'Settings'),
+  ];
+
+  double _pagePosition() {
+    if (_dragLogicalPosition != null) return _dragLogicalPosition!;
+    if (_heldTargetPosition != null) {
+      if (widget.controller.hasClients) {
+        final page = widget.controller.page ?? widget.selectedIndex.toDouble();
+        if ((page - _heldTargetPosition!).abs() < .02) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _heldTargetPosition != null) {
+              setState(() => _heldTargetPosition = null);
+            }
+          });
+        } else {
+          return _heldTargetPosition!;
+        }
+      } else {
+        return _heldTargetPosition!;
+      }
+    }
+    if (widget.controller.hasClients) return widget.controller.page ?? widget.selectedIndex.toDouble();
+    return widget.selectedIndex.toDouble();
+  }
+
+  void _updateDragAt(Offset localPosition, double width, bool rtl) {
+    final slot = width / _items.length;
+    var visual = (localPosition.dx / slot) - .5;
+    visual = visual.clamp(0.0, (_items.length - 1).toDouble()).toDouble();
+    final logical = rtl ? (_items.length - 1) - visual : visual;
+    setState(() => _dragLogicalPosition = logical.clamp(0.0, (_items.length - 1).toDouble()).toDouble());
+  }
+
+  void _endDrag() {
+    final value = (_dragLogicalPosition ?? widget.selectedIndex.toDouble())
+        .round()
+        .clamp(0, _items.length - 1)
+        .toInt();
+    setState(() {
+      _dragLogicalPosition = null;
+      _heldTargetPosition = value.toDouble();
+    });
+    widget.onSelected(value);
+  }
+
+  void _setTouching(bool value) {
+    if (_isTouchingBar == value) return;
+    setState(() => _isTouchingBar = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    final primary = Theme.of(context).colorScheme.primary;
+    return AnimatedScale(
+      scale: _isTouchingBar ? 1.025 : 1.0,
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOutCubic,
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) => _setTouching(true),
+        onPointerUp: (_) => _setTouching(false),
+        onPointerCancel: (_) => _setTouching(false),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 7, sigmaY: 7),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth.isFinite ? constraints.maxWidth : MediaQuery.sizeOf(context).width - 28;
+            final slot = width / _items.length;
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragStart: (d) => _updateDragAt(d.localPosition, width, rtl),
+              onHorizontalDragUpdate: (d) => _updateDragAt(d.localPosition, width, rtl),
+              onHorizontalDragEnd: (_) => _endDrag(),
+              onHorizontalDragCancel: () => setState(() => _dragLogicalPosition = null),
+              child: Container(
+                height: 60,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface.withValues(alpha: .76),
+                  border: Border.all(
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? Colors.white.withValues(alpha: .07)
+                        : Colors.black.withValues(alpha: .05),
+                  ),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: AnimatedBuilder(
+                  animation: widget.controller,
+                  builder: (context, _) {
+                    final logicalPosition = _pagePosition();
+                    final visualPosition = rtl ? (_items.length - 1) - logicalPosition : logicalPosition;
+                    final indicatorLeft = visualPosition * slot + 5;
+                    return Stack(
+                      children: [
+                        AnimatedPositioned(
+                          duration: Duration.zero,
+                          curve: Curves.linear,
+                          left: indicatorLeft,
+                          top: 6,
+                          width: slot - 10,
+                          height: 48,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: primary.withValues(alpha: .16),
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                          ),
+                        ),
+                        Row(
+                          children: List.generate(_items.length, (i) {
+                            final item = _items[i];
+                            final distance = (logicalPosition - i).abs().clamp(0.0, 1.0).toDouble();
+                            final selectedness = 1.0 - distance;
+                            final color = Color.lerp(
+                              Theme.of(context).colorScheme.onSurface.withValues(alpha: .55),
+                              primary,
+                              selectedness,
+                            )!;
+                            return Expanded(
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(18),
+                                onTap: () => widget.onSelected(i),
+                                child: SizedBox.expand(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(selectedness > .5 ? item.selectedIcon : item.icon, size: 21, color: color),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        tr(item.ar, item.en),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.fade,
+                                        style: TextStyle(
+                                          fontSize: 10.5,
+                                          height: 1,
+                                          fontWeight: selectedness > .5 ? FontWeight.w800 : FontWeight.w600,
+                                          color: color,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            );
+          },
         ),
-      );
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BottomItem {
+  final IconData icon;
+  final IconData selectedIcon;
+  final String ar;
+  final String en;
+  const _BottomItem(this.icon, this.selectedIcon, this.ar, this.en);
 }

@@ -4,6 +4,7 @@ import '../models/remote_app.dart';
 import '../models/sign_models.dart';
 import '../services/app_download_manager.dart';
 import '../services/localized.dart';
+import '../widgets/app_notice.dart';
 
 class AppDetailScreen extends StatefulWidget {
   final RemoteApp app;
@@ -32,8 +33,10 @@ class _AppDetailScreenState extends State<AppDetailScreen> {
       await _downloads.start(app);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${tr('فشل تنزيل التطبيق', 'Download failed')}: ${_friendlyError(e)}')),
+      showAppNotice(
+        context,
+        '${tr('فشل تنزيل التطبيق', 'Download failed')}: ${_friendlyError(e)}',
+        type: AppNoticeType.error,
       );
     }
   }
@@ -72,6 +75,13 @@ class _AppDetailScreenState extends State<AppDetailScreen> {
             item.category.trim().toLowerCase() == app.category.trim().toLowerCase())
         .take(8)
         .toList();
+    final recent = widget.libraryApps.where((item) => item.id != app.id).toList()
+      ..sort((a, b) {
+        final ad = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bd.compareTo(ad);
+      });
+    final recentApps = recent.take(10).toList();
     final description = app.displaySubtitle(widget.isArabic);
 
     return Scaffold(
@@ -110,9 +120,7 @@ class _AppDetailScreenState extends State<AppDetailScreen> {
                     ),
                     const SizedBox(height: 22),
                     _Stats(app: app),
-                    const SizedBox(height: 28),
-                    _SectionDivider(),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 26),
                     _SectionTitle(tr('ما الجديد', "What's New")),
                     const SizedBox(height: 10),
                     Text(
@@ -124,14 +132,6 @@ class _AppDetailScreenState extends State<AppDetailScreen> {
                     if (app.createdAt != null) ...[
                       const SizedBox(height: 5),
                       Text(_formatDate(app.createdAt!), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .42))),
-                    ],
-                    if (description.isNotEmpty) ...[
-                      const SizedBox(height: 28),
-                      _SectionDivider(),
-                      const SizedBox(height: 20),
-                      _SectionTitle(tr('حول التطبيق', 'About this app')),
-                      const SizedBox(height: 10),
-                      Text(description, style: TextStyle(fontSize: 15, height: 1.65, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .78))),
                     ],
                     if (app.screenshots.isNotEmpty) ...[
                       const SizedBox(height: 28),
@@ -150,6 +150,14 @@ class _AppDetailScreenState extends State<AppDetailScreen> {
                         ),
                       ),
                     ],
+                    if (description.isNotEmpty) ...[
+                      const SizedBox(height: 28),
+                      _SectionDivider(),
+                      const SizedBox(height: 20),
+                      _SectionTitle(tr('حول التطبيق', 'About this app')),
+                      const SizedBox(height: 10),
+                      Text(description, style: TextStyle(fontSize: 15, height: 1.65, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .78))),
+                    ],
                     if (similar.isNotEmpty) ...[
                       const SizedBox(height: 28),
                       _SectionDivider(),
@@ -164,6 +172,23 @@ class _AppDetailScreenState extends State<AppDetailScreen> {
                           itemCount: similar.length,
                           separatorBuilder: (_, __) => const SizedBox(width: 13),
                           itemBuilder: (context, index) => _SimilarApp(app: similar[index], isArabic: widget.isArabic, onTap: () => _openSimilar(similar[index])),
+                        ),
+                      ),
+                    ],
+                    if (recentApps.isNotEmpty) ...[
+                      const SizedBox(height: 28),
+                      _SectionDivider(),
+                      const SizedBox(height: 20),
+                      _SectionTitle(tr('تطبيقات قد تعجبك', 'You Might Also Like')),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        height: 132,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
+                          itemCount: recentApps.length,
+                          separatorBuilder: (_, __) => const SizedBox(width: 13),
+                          itemBuilder: (context, index) => _SimilarApp(app: recentApps[index], isArabic: widget.isArabic, onTap: () => _openSimilar(recentApps[index])),
                         ),
                       ),
                     ],
@@ -235,7 +260,7 @@ class _Header extends StatelessWidget {
                 else if (state.file != null)
                   FilledButton(
                     onPressed: onSign,
-                    style: FilledButton.styleFrom(minimumSize: const Size(92, 38), padding: const EdgeInsets.symmetric(horizontal: 23), shape: const StadiumBorder()),
+                    style: FilledButton.styleFrom(backgroundColor: Colors.grey.shade600, foregroundColor: Colors.white, minimumSize: const Size(92, 38), padding: const EdgeInsets.symmetric(horizontal: 23), shape: const StadiumBorder()),
                     child: Text(tr('توقيع', 'Sign'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
                   )
                 else
@@ -293,76 +318,155 @@ class _Stats extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: .48);
+    final strong = Theme.of(context).colorScheme.onSurface.withValues(alpha: .72);
+    final size = _sizeParts(app.size);
     final items = <_StatData>[
-      _StatData(tr('الحجم', 'SIZE'), Icons.storage_rounded, _size(app.size)),
-      _StatData(tr('التصنيف', 'CATEGORY'), Icons.category_rounded, app.category.isEmpty ? '—' : app.category),
-      _StatData(tr('الإصدار', 'VERSION'), Icons.new_releases_rounded, app.version.isEmpty ? '—' : app.version),
-      const _StatData('المطور', Icons.person_rounded, 'Alsaray'),
+      _StatData(
+        label: tr('الحجم', 'SIZE'),
+        value: size.$1,
+        subtitle: size.$2,
+        largeValue: true,
+      ),
+      _StatData(
+        label: tr('التصنيف', 'CATEGORY'),
+        icon: CupertinoIcons.square_grid_2x2,
+        subtitle: app.category.trim().isEmpty ? '—' : app.category.trim(),
+      ),
+      _StatData(
+        label: tr('المطور', 'DEVELOPER'),
+        icon: CupertinoIcons.person_crop_square,
+        subtitle: app.developerName.trim().isEmpty ? '—' : app.developerName.trim(),
+      ),
+      _StatData(
+        label: tr('الإصدار', 'VERSION'),
+        icon: Icons.tag_outlined,
+        subtitle: app.version.trim().isEmpty ? '—' : app.version.trim(),
+      ),
     ];
+
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      decoration: BoxDecoration(border: Border.symmetric(horizontal: BorderSide(color: Theme.of(context).dividerColor))),
+      decoration: BoxDecoration(
+        border: Border.symmetric(horizontal: BorderSide(color: Theme.of(context).dividerColor)),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 12),
       child: SizedBox(
-        height: 92,
-        child: ListView.separated(
+        height: 112,
+        child: ListView.builder(
           scrollDirection: Axis.horizontal,
           physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 2),
+          padding: EdgeInsets.zero,
           itemCount: items.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 10),
-          itemBuilder: (context, index) => _Stat(data: items[index]),
+          itemBuilder: (context, i) => Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 118,
+                child: _Stat(data: items[i], muted: muted, strong: strong),
+              ),
+              if (i != items.length - 1)
+                SizedBox(
+                  width: 1,
+                  height: 42,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(color: Theme.of(context).dividerColor),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  static String _size(int bytes) {
-    if (bytes <= 0) return '—';
-    if (bytes >= 1024 * 1024 * 1024) return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
-    if (bytes >= 1024 * 1024) return '${(bytes / 1024 / 1024).toStringAsFixed(0)} MB';
-    return '${(bytes / 1024).toStringAsFixed(0)} KB';
+  static (String, String) _sizeParts(int bytes) {
+    if (bytes <= 0) return ('—', '');
+    if (bytes >= 1024 * 1024 * 1024) {
+      return ((bytes / 1024 / 1024 / 1024).toStringAsFixed(1), 'GB');
+    }
+    if (bytes >= 1024 * 1024) {
+      return ((bytes / 1024 / 1024).toStringAsFixed(1), 'MB');
+    }
+    return ((bytes / 1024).toStringAsFixed(0), 'KB');
   }
 }
 
 class _StatData {
   final String label;
-  final IconData icon;
+  final IconData? icon;
   final String value;
-  const _StatData(this.label, this.icon, this.value);
+  final String subtitle;
+  final bool largeValue;
+
+  const _StatData({
+    required this.label,
+    this.icon,
+    this.value = '',
+    required this.subtitle,
+    this.largeValue = false,
+  });
 }
 
 class _Stat extends StatelessWidget {
   final _StatData data;
-  const _Stat({required this.data});
+  final Color muted;
+  final Color strong;
+  const _Stat({required this.data, required this.muted, required this.strong});
 
   @override
-  Widget build(BuildContext context) {
-    final valueColor = Theme.of(context).colorScheme.primary;
-    return Container(
-      width: 126,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-      decoration: BoxDecoration(
-        color: valueColor.withValues(alpha: .07),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: valueColor.withValues(alpha: .13)),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(data.label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .42))),
-          const SizedBox(height: 7),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(data.icon, size: 21, color: valueColor),
-              const SizedBox(width: 8),
-              Flexible(child: Text(data.value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: valueColor))),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              data.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: muted),
+            ),
+            const SizedBox(height: 11),
+            SizedBox(
+              height: 34,
+              child: Center(
+                child: data.icon == null
+                    ? Transform.translate(
+                        offset: const Offset(0, 3),
+                        child: Text(
+                        data.value,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: data.largeValue ? 27 : 17,
+                          height: 1,
+                          fontWeight: data.largeValue ? FontWeight.w800 : FontWeight.w500,
+                          color: strong,
+                        ),
+                      ),
+                      )
+                    : Icon(data.icon, size: 31, color: strong),
+              ),
+            ),
+            const SizedBox(height: 7),
+            SizedBox(
+              height: 30,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Text(
+                  data.subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 10.5, height: 1.2, color: muted),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
 }
 
 class _SectionDivider extends StatelessWidget {

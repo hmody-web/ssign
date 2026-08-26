@@ -81,10 +81,11 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     try updateInfoPlist(app:app,bundleId:"",displayName:"",version:str("version"),build:str("build"),removeDevices:(args["removeSupportedDevices"] as? Bool) ?? false)
     let requestedIcon = str("iconPath")
     if !requestedIcon.isEmpty { try replaceAppIcons(app: app, iconPath: requestedIcon) }
-    let payload=root.appendingPathComponent("Payload").path
+    // ZSignApple SignFolder expects the extracted IPA root that CONTAINS Payload, not Payload itself.
+    let signingRoot = root.path
     let requestedBundle = str("bundleId")
     let requestedName = str("displayName")
-    let code = payload.withCString { cPath in
+    let code = signingRoot.withCString { cPath in
       p12.withCString { cCert in
         p12.withCString { cKey in
           provision.withCString { cProv in
@@ -272,8 +273,15 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
             _ = try self.installServer.start(ipa:ipa)
             var c=URLComponents(string:"https://api.palera.in/genPlist")!
             c.queryItems=[URLQueryItem(name:"bundleid",value:bundle),URLQueryItem(name:"name",value:title),URLQueryItem(name:"version",value:version),URLQueryItem(name:"fetchurl",value:self.installServer.ipaHTTPURL)]
-            let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn:"-._~"))
-            guard let manifestRaw=c.url?.absoluteString, let manifest=manifestRaw.addingPercentEncoding(withAllowedCharacters:allowed), let itms=URL(string:"itms-services://?action=download-manifest&url=\(manifest)") else { throw NSError(domain:"Sign",code:10,userInfo:[NSLocalizedDescriptionKey:"Could not create OTA install URL"]) }
+            guard let manifestURL = c.url else { throw NSError(domain:"Sign",code:10,userInfo:[NSLocalizedDescriptionKey:"Could not create manifest URL"]) }
+            var installComponents = URLComponents()
+            installComponents.scheme = "itms-services"
+            installComponents.host = ""
+            installComponents.queryItems = [
+              URLQueryItem(name: "action", value: "download-manifest"),
+              URLQueryItem(name: "url", value: manifestURL.absoluteString),
+            ]
+            guard let itms = installComponents.url else { throw NSError(domain:"Sign",code:10,userInfo:[NSLocalizedDescriptionKey:"Could not create OTA install URL"]) }
             if self.backgroundTask == .invalid { self.backgroundTask=UIApplication.shared.beginBackgroundTask(withName:"SignInstall") { if self.backgroundTask != .invalid { UIApplication.shared.endBackgroundTask(self.backgroundTask); self.backgroundTask = .invalid } } }
             UIApplication.shared.open(itms,options:[:]) { opened in result(opened) }
           } catch { result(FlutterError(code:"INSTALL_FAILED",message:error.localizedDescription,details:nil)) }

@@ -8,6 +8,7 @@ import '../services/app_store.dart';
 import '../services/file_import_service.dart';
 import '../services/signing_service.dart';
 import '../services/localized.dart';
+import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 
 class SignScreen extends StatefulWidget {
@@ -251,8 +252,10 @@ class _SignScreenState extends State<SignScreen> {
     if (value) {
       final current = bundle.text.trim();
       if (current.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(tr('يجب أن يكون للتطبيق Bundle ID أولاً.', 'The app needs a Bundle ID first.'))),
+        showAppNotice(
+          context,
+          tr('يجب أن يكون للتطبيق Bundle ID أولاً.', 'The app needs a Bundle ID first.'),
+          type: AppNoticeType.warning,
         );
         return;
       }
@@ -278,8 +281,10 @@ class _SignScreenState extends State<SignScreen> {
   Future<void> _sign() async {
     final id = selectedIdentity;
     if (ipaPath == null || id == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr('اختر تطبيق IPA وأضف شهادة توقيع أولاً.', 'Choose an IPA and add a signing identity first.'))),
+      showAppNotice(
+        context,
+        tr('اختر تطبيق IPA وأضف شهادة توقيع أولاً.', 'Choose an IPA and add a signing identity first.'),
+        type: AppNoticeType.warning,
       );
       return;
     }
@@ -364,7 +369,7 @@ class _SignScreenState extends State<SignScreen> {
                       Navigator.pop(ctx);
                       final ok = await signing.install(out);
                       if (mounted && !ok) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تعذر فتح مثبت iOS.', 'iOS did not open the installer.'))));
+                        showAppNotice(context, tr('تعذر فتح مثبت iOS.', 'iOS did not open the installer.'), type: AppNoticeType.error);
                       }
                     },
                     icon: const Icon(CupertinoIcons.arrow_down_circle),
@@ -384,7 +389,7 @@ class _SignScreenState extends State<SignScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('فشل التوقيع', 'Signing failed')}: $e')));
+        showAppNotice(context, '${tr('فشل التوقيع', 'Signing failed')}: $e', type: AppNoticeType.error);
       }
     } finally {
       if (mounted) {

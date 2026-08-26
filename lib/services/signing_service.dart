@@ -29,5 +29,11 @@ class SigningService {
   Future<void> deletePassword(String id) async => _channel.invokeMethod<void>('deletePassword',{'id':id});
 
   Future<void> share(String path) async => _channel.invokeMethod<void>('shareFile',{'path':path});
-  Future<bool> install(String path) async => (await _channel.invokeMethod<bool>('installIpa',{'path':path})) ?? false;
+  Future<bool> install(String path) async {
+    try {
+      return (await _channel.invokeMethod<bool>('installIpa', {'path': path})) ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
 }

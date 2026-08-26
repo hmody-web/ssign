@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/app_store.dart';
 import '../services/localized.dart';
+import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 import 'certificates_screen.dart';
 
@@ -13,7 +14,7 @@ class SettingsScreen extends StatelessWidget {
   Future<void> _openDeveloperSite(BuildContext context) async {
     final opened = await launchUrl(_developerUrl, mode: LaunchMode.externalApplication);
     if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تعذر فتح موقع المطور', 'Could not open developer website'))));
+      showAppNotice(context, tr('تعذر فتح موقع المطور', 'Could not open developer website'), type: AppNoticeType.error);
     }
   }
 
