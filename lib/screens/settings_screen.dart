@@ -6,6 +6,7 @@ import '../services/localized.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 import 'certificates_screen.dart';
+import 'admin_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   final Key? topKey;
@@ -95,6 +96,35 @@ class SettingsScreen extends StatelessWidget {
                       onSelectionChanged: (v) => store.setTheme(v.first),
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: () => Navigator.of(context).push(CupertinoPageRoute(builder: (_) => const AdminGateScreen())),
+                  child: GlassCard(
+                    child: Row(children: [
+                      Container(
+                        width: 52,
+                        height: 52,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(colors: [Theme.of(context).colorScheme.primary, Theme.of(context).colorScheme.primary.withValues(alpha: .65)]),
+                          borderRadius: BorderRadius.circular(17),
+                          boxShadow: [BoxShadow(color: Theme.of(context).colorScheme.primary.withValues(alpha: .24), blurRadius: 20, offset: const Offset(0, 8))],
+                        ),
+                        child: const Icon(CupertinoIcons.lock_shield_fill, color: Colors.white, size: 27),
+                      ),
+                      const SizedBox(width: 13),
+                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(tr('لوحة تحكم الأدمن', 'Admin Control Panel'), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+                        const SizedBox(height: 3),
+                        Text(tr('دخول مشفر ومربوط بهذا الجهاز فقط', 'Encrypted access locked to this device'), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .52))),
+                      ])),
+                      Icon(CupertinoIcons.chevron_forward, size: 18, color: Theme.of(context).colorScheme.primary),
+                    ]),
+                  ),
                 ),
               ),
               const SizedBox(height: 14),

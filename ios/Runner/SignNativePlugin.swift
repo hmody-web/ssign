@@ -3,6 +3,8 @@ import UIKit
 import Security
 import ZIPFoundation
 import ZSign
+import CryptoKit
+import LocalAuthentication
 
 final class SignNativePlugin: NSObject, FlutterPlugin {
   private let installServer = LocalInstallServer()
@@ -441,4 +443,152 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     if let pop=sheet.popoverPresentationController {pop.sourceView=vc.view;pop.sourceRect=CGRect(x:vc.view.bounds.midX,y:vc.view.bounds.maxY-40,width:1,height:1)}
     vc.present(sheet,animated:true){result(nil)}
   }
+}
+
+// MARK: - Admin Secure Device Identity
+
+final class AdminSecurePlugin: NSObject, FlutterPlugin {
+    private static let service = "com.scrptaty.ssign.admin.identity"
+    private static let keyAccount = "secure-enclave-p256"
+    private static let softwareKeyAccount = "software-p256-fallback"
+
+    static func register(with registrar: FlutterPluginRegistrar) {
+        let channel = FlutterMethodChannel(name: "sign/admin_secure", binaryMessenger: registrar.messenger())
+        registrar.addMethodCallDelegate(AdminSecurePlugin(), channel: channel)
+    }
+
+    func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        switch call.method {
+        case "getIdentity":
+            do {
+                let identity = try ensureIdentity(authenticationContext: nil)
+                result([
+                    "publicKey": identity.publicKey,
+                    "hardwareBacked": identity.hardwareBacked,
+                    "deviceLabel": UIDevice.current.name
+                ])
+            } catch {
+                result(FlutterError(code: "ADMIN_IDENTITY", message: error.localizedDescription, details: nil))
+            }
+
+        case "authenticateAndSign":
+            guard let args = call.arguments as? [String: Any], let message = args["message"] as? String else {
+                result(FlutterError(code: "BAD_ARGS", message: "Missing message", details: nil))
+                return
+            }
+            authenticate(reason: "تأكيد هويتك لفتح لوحة تحكم الأدمن") { [weak self] success, context, error in
+                guard let self else { return }
+                guard success, let context else {
+                    result(FlutterError(code: "AUTH_CANCELLED", message: error?.localizedDescription ?? "تعذر التحقق من الهوية", details: nil))
+                    return
+                }
+                do {
+                    let signed = try self.sign(message: message, context: context)
+                    result([
+                        "signature": signed.signature,
+                        "publicKey": signed.publicKey,
+                        "hardwareBacked": signed.hardwareBacked
+                    ])
+                } catch {
+                    result(FlutterError(code: "SIGN_FAILED", message: error.localizedDescription, details: nil))
+                }
+            }
+
+        case "hasIdentity":
+            result(loadKeychain(account: Self.keyAccount) != nil || loadKeychain(account: Self.softwareKeyAccount) != nil)
+
+        default:
+            result(FlutterMethodNotImplemented)
+        }
+    }
+
+    private func authenticate(reason: String, completion: @escaping (Bool, LAContext?, Error?) -> Void) {
+        let context = LAContext()
+        context.localizedCancelTitle = "إلغاء"
+        var authError: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &authError) else {
+            completion(false, nil, authError)
+            return
+        }
+        context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { ok, error in
+            DispatchQueue.main.async { completion(ok, ok ? context : nil, error) }
+        }
+    }
+
+    private func ensureIdentity(authenticationContext: LAContext?) throws -> (publicKey: String, hardwareBacked: Bool) {
+        if SecureEnclave.isAvailable {
+            if let stored = loadKeychain(account: Self.keyAccount) {
+                let key = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: stored, authenticationContext: authenticationContext)
+                return (key.publicKey.x963Representation.base64EncodedString(), true)
+            }
+
+            var cfError: Unmanaged<CFError>?
+            guard let access = SecAccessControlCreateWithFlags(
+                kCFAllocatorDefault,
+                kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+                [.privateKeyUsage, .userPresence],
+                &cfError
+            ) else {
+                throw cfError!.takeRetainedValue() as Error
+            }
+            let key = try SecureEnclave.P256.Signing.PrivateKey(accessControl: access, authenticationContext: authenticationContext)
+            try saveKeychain(key.dataRepresentation, account: Self.keyAccount)
+            return (key.publicKey.x963Representation.base64EncodedString(), true)
+        }
+
+        // Simulator/unsupported-device fallback. On real supported iPhones the
+        // identity always uses Secure Enclave. This key is still ThisDeviceOnly.
+        if let stored = loadKeychain(account: Self.softwareKeyAccount) {
+            let key = try P256.Signing.PrivateKey(rawRepresentation: stored)
+            return (key.publicKey.x963Representation.base64EncodedString(), false)
+        }
+        let key = P256.Signing.PrivateKey()
+        try saveKeychain(key.rawRepresentation, account: Self.softwareKeyAccount)
+        return (key.publicKey.x963Representation.base64EncodedString(), false)
+    }
+
+    private func sign(message: String, context: LAContext) throws -> (signature: String, publicKey: String, hardwareBacked: Bool) {
+        let data = Data(message.utf8)
+        if SecureEnclave.isAvailable, let stored = loadKeychain(account: Self.keyAccount) {
+            let key = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: stored, authenticationContext: context)
+            let signature = try key.signature(for: data)
+            return (signature.derRepresentation.base64EncodedString(), key.publicKey.x963Representation.base64EncodedString(), true)
+        }
+        guard let stored = loadKeychain(account: Self.softwareKeyAccount) else {
+            _ = try ensureIdentity(authenticationContext: context)
+            return try sign(message: message, context: context)
+        }
+        let key = try P256.Signing.PrivateKey(rawRepresentation: stored)
+        let signature = try key.signature(for: data)
+        return (signature.derRepresentation.base64EncodedString(), key.publicKey.x963Representation.base64EncodedString(), false)
+    }
+
+    private func saveKeychain(_ data: Data, account: String) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(query as CFDictionary)
+        var add = query
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        let status = SecItemAdd(add as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [NSLocalizedDescriptionKey: "تعذر حفظ هوية الجهاز الآمنة"])
+        }
+    }
+
+    private func loadKeychain(account: String) -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        return status == errSecSuccess ? item as? Data : nil
+    }
 }

@@ -8,6 +8,9 @@ import UIKit
     if let registrar = self.registrar(forPlugin: "SignNativePlugin") {
       SignNativePlugin.register(with: registrar)
     }
+    if let registrar = self.registrar(forPlugin: "AdminSecurePlugin") {
+      AdminSecurePlugin.register(with: registrar)
+    }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 }
