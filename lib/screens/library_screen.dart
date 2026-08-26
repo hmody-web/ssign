@@ -133,7 +133,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _deleteSelected() async {
-    final targets = store.files.where((f) => selected.contains(f.id)).toList();
+    final targets = store.importedFiles.where((f) => selected.contains(f.id)).toList();
     if (targets.isEmpty || !await _confirmDelete(count: targets.length)) return;
     for (final f in targets) {
       try { await File(f.path).delete(); } catch (_) {}
@@ -285,12 +285,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                   const SizedBox(height: 10),
                 ],
-                if (file.kind == 'Archive' || file.path.toLowerCase().endsWith('.zip')) ...[
+                if (file.kind == 'Archive' || file.path.toLowerCase().endsWith('.zip') || isIpa) ...[
                   _actionTile(
                     context,
                     icon: CupertinoIcons.archivebox,
-                    title: tr('استخراج الملف', 'Extract archive'),
-                    subtitle: tr('يتم الاستخراج داخل كرت المجلدات فقط', 'Extraction is available inside Folders only'),
+                    title: isIpa ? tr('استخراج ملفات التطبيق', 'Extract application files') : tr('استخراج الملف', 'Extract archive'),
+                    subtitle: isIpa ? tr('استخراج محتويات IPA بالكامل داخل المجلدات', 'Extract the complete IPA contents inside Folders') : tr('يتم الاستخراج داخل كرت المجلدات فقط', 'Extraction is available inside Folders only'),
                     onTap: () { Navigator.pop(ctx); _extractArchive(file); },
                   ),
                   const SizedBox(height: 10),
@@ -521,7 +521,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 child: Row(
                   children: [
                     Expanded(child: Text(tr('الملفات', 'Library'), style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800))),
-                    if (store.files.isNotEmpty)
+                    if (store.importedFiles.isNotEmpty)
                       Tooltip(
                         message: selecting ? tr('إلغاء', 'Cancel') : tr('تحديد', 'Select'),
                         child: Material(
@@ -551,23 +551,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       Expanded(
                         child: FilledButton.tonalIcon(
                           onPressed: () => setState(() {
-                            if (selected.length == store.files.length) selected.clear();
-                            else selected.addAll(store.files.map((e) => e.id));
+                            if (selected.length == store.importedFiles.length) selected.clear();
+                            else selected.addAll(store.importedFiles.map((e) => e.id));
                           }),
-                          icon: Icon(selected.length == store.files.length ? CupertinoIcons.clear_circled : CupertinoIcons.checkmark_alt_circle),
-                          label: Text(selected.length == store.files.length ? tr('إلغاء تحديد الكل', 'Clear all') : tr('تحديد الكل', 'Select all')),
+                          icon: Icon(selected.length == store.importedFiles.length ? CupertinoIcons.clear_circled : CupertinoIcons.checkmark_alt_circle),
+                          label: Text(selected.length == store.importedFiles.length ? tr('إلغاء تحديد الكل', 'Clear all') : tr('تحديد الكل', 'Select all')),
                         ),
                       ),
                       const SizedBox(width: 8),
                       IconButton.filledTonal(
                         tooltip: tr('نقل', 'Move'),
-                        onPressed: selected.isEmpty ? null : () => _copyOrMoveFiles(store.files.where((f) => selected.contains(f.id)).toList(), move: true),
+                        onPressed: selected.isEmpty ? null : () => _copyOrMoveFiles(store.importedFiles.where((f) => selected.contains(f.id)).toList(), move: true),
                         icon: const Icon(CupertinoIcons.arrow_right_arrow_left),
                       ),
                       const SizedBox(width: 6),
                       IconButton.filledTonal(
                         tooltip: tr('نسخ', 'Copy'),
-                        onPressed: selected.isEmpty ? null : () => _copyOrMoveFiles(store.files.where((f) => selected.contains(f.id)).toList(), move: false),
+                        onPressed: selected.isEmpty ? null : () => _copyOrMoveFiles(store.importedFiles.where((f) => selected.contains(f.id)).toList(), move: false),
                         icon: const Icon(CupertinoIcons.doc_on_doc),
                       ),
                       const SizedBox(width: 8),
@@ -581,7 +581,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                 ),
               ),
-            if (store.files.isEmpty && downloads.activeDownloads.isEmpty)
+            if (store.importedFiles.isEmpty && downloads.activeDownloads.isEmpty)
               SliverFillRemaining(
                 hasScrollBody: false,
                 child: Center(
@@ -596,7 +596,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(18, 0, 18, 120),
                 sliver: SliverList.builder(
-                  itemCount: downloads.activeDownloads.length + store.files.length,
+                  itemCount: downloads.activeDownloads.length + store.importedFiles.length,
                   itemBuilder: (_, i) {
                     final active = downloads.activeDownloads;
                     if (i < active.length) {
@@ -607,7 +607,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       );
                     }
 
-                    final f = store.files.reversed.toList()[i - active.length];
+                    final f = store.importedFiles.reversed.toList()[i - active.length];
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: GestureDetector(

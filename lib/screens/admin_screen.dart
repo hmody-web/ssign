@@ -7,6 +7,44 @@ import '../services/admin_service.dart';
 import '../services/localized.dart';
 import '../widgets/glass_card.dart';
 
+const Map<String, String> _adminCategoryAr = {
+  'games': 'ألعاب',
+  'game': 'ألعاب',
+  'social': 'تواصل اجتماعي',
+  'social networking': 'تواصل اجتماعي',
+  'photo & video': 'صور وفيديو',
+  'photo': 'صور',
+  'video': 'فيديو',
+  'music': 'موسيقى',
+  'entertainment': 'ترفيه',
+  'utilities': 'أدوات',
+  'utility': 'أدوات',
+  'tools': 'أدوات',
+  'business': 'أعمال',
+  'education': 'تعليم',
+  'productivity': 'إنتاجية',
+  'finance': 'مال وأعمال',
+  'shopping': 'تسوق',
+  'lifestyle': 'نمط حياة',
+  'health & fitness': 'صحة ولياقة',
+  'health': 'صحة ولياقة',
+  'sports': 'رياضة',
+  'travel': 'سفر',
+  'navigation': 'ملاحة',
+  'news': 'أخبار',
+  'weather': 'طقس',
+  'food & drink': 'طعام وشراب',
+  'food': 'طعام وشراب',
+  'books': 'كتب',
+  'reference': 'مراجع',
+  'medical': 'طب',
+  'developer tools': 'أدوات المطور',
+  'graphics & design': 'رسوم وتصميم',
+};
+
+String _adminCategoryDisplay(String category) =>
+    _adminCategoryAr[category.trim().toLowerCase()] ?? category.trim();
+
 class AdminGateScreen extends StatefulWidget {
   const AdminGateScreen({super.key});
   @override
@@ -148,8 +186,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
+  List<String> get _availableCategories {
+    final values = (_data?.apps ?? const <AdminApp>[])
+        .map((app) => app.category.trim())
+        .where((category) => category.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort((a, b) => _adminCategoryDisplay(a).compareTo(_adminCategoryDisplay(b)));
+    return values;
+  }
+
   Future<void> _openForm([AdminApp? app]) async {
-    final changed = await Navigator.of(context).push<bool>(CupertinoPageRoute(builder: (_) => AdminAppFormScreen(app: app)));
+    final changed = await Navigator.of(context).push<bool>(CupertinoPageRoute(
+      builder: (_) => AdminAppFormScreen(app: app, categories: _availableCategories),
+    ));
     if (changed == true) _load();
   }
 
@@ -224,14 +274,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
 class AdminAppFormScreen extends StatefulWidget {
   final AdminApp? app;
-  const AdminAppFormScreen({super.key, this.app});
+  final List<String> categories;
+  const AdminAppFormScreen({super.key, this.app, required this.categories});
   @override
   State<AdminAppFormScreen> createState() => _AdminAppFormScreenState();
 }
 
 class _AdminAppFormScreenState extends State<AdminAppFormScreen> {
-  late final TextEditingController _name, _developer, _bundle, _version, _build, _category, _description;
-  String? _ipaPath, _iconPath;
+  late final TextEditingController _name, _developer, _bundle, _version, _build, _description;
+  String? _selectedCategory;
+  String? _ipaPath, _iconPath, _extractedIconUrl, _iconSource;
+  int _inspectedSize = 0;
   final List<String> _shots = [];
   bool _busy = false;
   double _progress = 0;
@@ -240,21 +293,31 @@ class _AdminAppFormScreenState extends State<AdminAppFormScreen> {
   @override
   void initState() {
     super.initState(); final a = widget.app;
-    _name = TextEditingController(text: a?.name ?? ''); _developer = TextEditingController(text: a?.developer ?? ''); _bundle = TextEditingController(text: a?.bundleId ?? ''); _version = TextEditingController(text: a?.version ?? ''); _build = TextEditingController(text: a?.build ?? ''); _category = TextEditingController(text: a?.category ?? ''); _description = TextEditingController(text: a?.description ?? '');
+    _name = TextEditingController(text: a?.name ?? ''); _developer = TextEditingController(text: a?.developer ?? ''); _bundle = TextEditingController(text: a?.bundleId ?? ''); _version = TextEditingController(text: a?.version ?? ''); _build = TextEditingController(text: a?.build ?? ''); _description = TextEditingController(text: a?.description ?? '');
+    final currentCategory = a?.category.trim() ?? '';
+    _selectedCategory = currentCategory.isEmpty ? null : currentCategory;
   }
 
   Future<void> _pickIpa() async {
     final r = await FilePicker.platform.pickFiles(type: FileType.any, allowMultiple: false);
     final path = r?.files.single.path; if (path == null) return;
     if (!path.toLowerCase().endsWith('.ipa')) { setState(() => _error = 'اختر ملف IPA.'); return; }
-    setState(() { _ipaPath = path; _busy = true; _progress = 0; _error = null; });
+    setState(() { _ipaPath = path; _iconPath = null; _extractedIconUrl = null; _iconSource = null; _inspectedSize = 0; _busy = true; _progress = 0; _error = null; });
     try {
       final meta = await AdminService.instance.inspectIpa(path, onProgress: (p) { if (mounted) setState(() => _progress = p); });
       final m = Map<String, dynamic>.from(meta['meta'] is Map ? meta['meta'] as Map : const {});
-      if ('${m['name'] ?? ''}'.isNotEmpty) _name.text = '${m['name']}';
-      if ('${m['bundle_id'] ?? ''}'.isNotEmpty) _bundle.text = '${m['bundle_id']}';
-      if ('${m['version'] ?? ''}'.isNotEmpty) _version.text = '${m['version']}';
-      if ('${m['build'] ?? ''}'.isNotEmpty) _build.text = '${m['build']}';
+      _name.text = '${m['name'] ?? ''}'.trim();
+      _bundle.text = '${m['bundle_id'] ?? ''}'.trim();
+      _version.text = '${m['version'] ?? ''}'.trim();
+      _build.text = '${m['build'] ?? ''}'.trim();
+      _inspectedSize = int.tryParse('${m['size'] ?? 0}') ?? 0;
+      final extracted = '${m['icon_preview_url'] ?? ''}'.trim();
+      _extractedIconUrl = extracted.isEmpty ? null : extracted;
+      final source = '${m['icon_source'] ?? ''}'.trim();
+      _iconSource = source.isEmpty ? null : source;
+      if (_name.text.isEmpty && _bundle.text.isEmpty && _version.text.isEmpty && _build.text.isEmpty) {
+        _error = 'تم اختيار IPA، لكن لم يتمكن الخادم من قراءة Info.plist. تأكد أن الملف IPA صالح.';
+      }
     } catch (e) { _error = e.toString().replaceFirst('Exception: ', ''); }
     if (mounted) setState(() => _busy = false);
   }
@@ -265,15 +328,16 @@ class _AdminAppFormScreenState extends State<AdminAppFormScreen> {
   Future<void> _save() async {
     if (_name.text.trim().isEmpty) { setState(() => _error = 'اسم التطبيق مطلوب.'); return; }
     if (widget.app == null && _ipaPath == null) { setState(() => _error = 'اختر ملف IPA أولًا.'); return; }
+    if (_selectedCategory == null || _selectedCategory!.trim().isEmpty) { setState(() => _error = 'اختر تصنيف التطبيق.'); return; }
     setState(() { _busy = true; _progress = 0; _error = null; });
     try {
-      await AdminService.instance.saveApp(id: widget.app?.id ?? '', name: _name.text.trim(), developer: _developer.text.trim(), description: _description.text.trim(), bundleId: _bundle.text.trim(), version: _version.text.trim(), build: _build.text.trim(), category: _category.text.trim(), ipaPath: _ipaPath, iconPath: _iconPath, screenshotPaths: _shots, onProgress: (p) { if (mounted) setState(() => _progress = p); });
+      await AdminService.instance.saveApp(id: widget.app?.id ?? '', name: _name.text.trim(), developer: _developer.text.trim(), description: _description.text.trim(), bundleId: _bundle.text.trim(), version: _version.text.trim(), build: _build.text.trim(), category: _selectedCategory?.trim() ?? '', ipaPath: _ipaPath, iconPath: _iconPath, screenshotPaths: _shots, onProgress: (p) { if (mounted) setState(() => _progress = p); });
       if (mounted) Navigator.pop(context, true);
     } catch (e) { if (mounted) setState(() { _busy = false; _error = e.toString().replaceFirst('Exception: ', ''); }); }
   }
 
   @override
-  void dispose() { for (final c in [_name,_developer,_bundle,_version,_build,_category,_description]) { c.dispose(); } super.dispose(); }
+  void dispose() { for (final c in [_name,_developer,_bundle,_version,_build,_description]) { c.dispose(); } super.dispose(); }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -285,16 +349,126 @@ class _AdminAppFormScreenState extends State<AdminAppFormScreen> {
       Row(children: [Expanded(child: _field(_name, 'اسم التطبيق')), const SizedBox(width: 10), Expanded(child: _field(_developer, 'المطور'))]), const SizedBox(height: 10),
       _field(_bundle, 'Bundle ID'), const SizedBox(height: 10),
       Row(children: [Expanded(child: _field(_version, 'الإصدار')), const SizedBox(width: 10), Expanded(child: _field(_build, 'Build'))]), const SizedBox(height: 10),
-      _field(_category, 'التصنيف'), const SizedBox(height: 10),
+      _categorySelector(), const SizedBox(height: 10),
       TextField(controller: _description, minLines: 4, maxLines: 7, decoration: _dec('الوصف')), const SizedBox(height: 15),
-      Row(children: [Expanded(child: _picker('أيقونة التطبيق', _iconPath == null ? 'اختيار صورة' : 'تم اختيار الصورة ✓', CupertinoIcons.photo_fill, _pickIcon)), const SizedBox(width: 10), Expanded(child: _picker('المعاينات', _shots.isEmpty ? 'اختيار صور' : '${_shots.length} صور ✓', CupertinoIcons.rectangle_stack_fill, _pickShots))]),
-      if (_iconPath != null) ...[const SizedBox(height: 12), Center(child: ClipRRect(borderRadius: BorderRadius.circular(22), child: Image.file(File(_iconPath!), width: 94, height: 94, fit: BoxFit.cover)))],
+      Row(children: [Expanded(child: _picker('أيقونة التطبيق', _iconPath != null ? 'صورة مخصصة ✓' : (_extractedIconUrl != null ? 'مستخرجة تلقائيًا • اضغط للتغيير' : 'اختيار صورة'), CupertinoIcons.photo_fill, _pickIcon)), const SizedBox(width: 10), Expanded(child: _picker('المعاينات', _shots.isEmpty ? 'اختيار صور' : '${_shots.length} صور ✓', CupertinoIcons.rectangle_stack_fill, _pickShots))]),
+      if (_iconPath != null || _extractedIconUrl != null) ...[
+        const SizedBox(height: 12),
+        Center(child: Column(children: [
+          ClipRRect(borderRadius: BorderRadius.circular(22), child: _iconPath != null
+              ? Image.file(File(_iconPath!), width: 104, height: 104, fit: BoxFit.cover)
+              : Image.network(_extractedIconUrl!, width: 104, height: 104, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(width: 104, height: 104, alignment: Alignment.center, decoration: BoxDecoration(borderRadius: BorderRadius.circular(22), color: Theme.of(context).colorScheme.surfaceContainerHighest), child: const Icon(CupertinoIcons.photo, size: 34)))),
+          const SizedBox(height: 7),
+          Text(_iconPath != null ? 'سيتم استخدام الصورة المخصصة' : 'تم استخراج الأيقونة تلقائيًا${_iconSource == null ? '' : ' • $_iconSource'}', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .55))),
+          if (_inspectedSize > 0) Padding(padding: const EdgeInsets.only(top: 3), child: Text('حجم IPA: ${_formatBytes(_inspectedSize)}', style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .45)))),
+        ])),
+      ],
       if (_shots.isNotEmpty) ...[const SizedBox(height: 12), SizedBox(height: 140, child: ListView.separated(scrollDirection: Axis.horizontal, itemCount: _shots.length, separatorBuilder: (_, __) => const SizedBox(width: 8), itemBuilder: (_, i) => ClipRRect(borderRadius: BorderRadius.circular(14), child: Image.file(File(_shots[i]), width: 80, height: 140, fit: BoxFit.cover))))],
       if (_error != null) ...[const SizedBox(height: 14), Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.red.withValues(alpha: .1), borderRadius: BorderRadius.circular(14)), child: Text(_error!, style: const TextStyle(color: Colors.red)))],
       const SizedBox(height: 18),
       FilledButton.icon(onPressed: _busy ? null : _save, icon: const Icon(CupertinoIcons.cloud_upload_fill), label: Text(widget.app == null ? 'رفع وإضافة التطبيق' : 'حفظ التعديلات'), style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)))),
     ]),
   );
+
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    final kb = bytes / 1024;
+    if (kb < 1024) return '${kb.toStringAsFixed(1)} KB';
+    final mb = kb / 1024;
+    if (mb < 1024) return '${mb.toStringAsFixed(1)} MB';
+    return '${(mb / 1024).toStringAsFixed(2)} GB';
+  }
+
+  Widget _categorySelector() {
+    final categories = <String>[...widget.categories];
+    final current = _selectedCategory?.trim();
+    if (current != null && current.isNotEmpty && !categories.contains(current)) {
+      categories.add(current);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsetsDirectional.only(start: 3, bottom: 8),
+          child: Row(
+            children: [
+              const Text('التصنيف', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900)),
+              const SizedBox(width: 7),
+              Text('اختر من التصنيفات الموجودة', style: TextStyle(fontSize: 10.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48))),
+            ],
+          ),
+        ),
+        if (categories.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: .55),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Text('لا توجد تصنيفات حالياً في المكتبة.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+          )
+        else
+          SizedBox(
+            height: 45,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsetsDirectional.only(start: 1, end: 1),
+              itemCount: categories.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (_, index) {
+                final raw = categories[index];
+                final selected = _selectedCategory?.trim().toLowerCase() == raw.trim().toLowerCase();
+                return Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _busy ? null : () => setState(() => _selectedCategory = raw),
+                    borderRadius: BorderRadius.circular(14),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      padding: const EdgeInsets.symmetric(horizontal: 15),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.primary.withValues(alpha: .08),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: selected
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).colorScheme.primary.withValues(alpha: .10),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (selected) ...[
+                            Icon(CupertinoIcons.checkmark_alt, size: 14, color: Theme.of(context).colorScheme.onPrimary),
+                            const SizedBox(width: 6),
+                          ],
+                          Text(
+                            _adminCategoryDisplay(raw),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: selected
+                                  ? Theme.of(context).colorScheme.onPrimary
+                                  : Theme.of(context).colorScheme.onSurface.withValues(alpha: .76),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+      ],
+    );
+  }
 
   Widget _field(TextEditingController c, String h) => TextField(controller: c, decoration: _dec(h));
   InputDecoration _dec(String h) => InputDecoration(labelText: h, filled: true, border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none));

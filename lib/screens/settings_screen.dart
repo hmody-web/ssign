@@ -2,15 +2,35 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/app_store.dart';
+import '../services/admin_service.dart';
 import '../services/localized.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 import 'certificates_screen.dart';
 import 'admin_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   final Key? topKey;
   const SettingsScreen({super.key, this.topKey});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  late Future<bool> _adminVisibility;
+
+  @override
+  void initState() {
+    super.initState();
+    _adminVisibility = AdminService.instance.isThisDeviceAdmin();
+  }
+
+  Future<void> _refreshAdminVisibility() async {
+    final next = AdminService.instance.isThisDeviceAdmin();
+    if (mounted) setState(() => _adminVisibility = next);
+    await next;
+  }
   static final Uri _developerUrl = Uri.parse('https://scrptaty.com');
 
   Future<void> _openDeveloperSite(BuildContext context) async {
@@ -28,7 +48,7 @@ class SettingsScreen extends StatelessWidget {
           return ListView(
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 110),
             children: [
-              Text(tr('الإعدادات', 'Settings'), key: topKey, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -1)),
+              Text(tr('الإعدادات', 'Settings'), key: widget.topKey, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -1)),
               const SizedBox(height: 20),
               GlassCard(
                 padding: EdgeInsets.zero,
@@ -44,32 +64,37 @@ class SettingsScreen extends StatelessWidget {
               const SizedBox(height: 14),
               GlassCard(
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Row(
-                      children: [
-                        _tileIcon(context, CupertinoIcons.globe),
-                        const SizedBox(width: 12),
-                        Expanded(child: Text(tr('اللغة', 'Language'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17))),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 320),
-                        child: SegmentedButton<String>(
-                          style: ButtonStyle(
-                            visualDensity: VisualDensity.comfortable,
-                            shape: MaterialStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-                          ),
-                          segments: const [
-                            ButtonSegment(value: 'ar', icon: Icon(CupertinoIcons.textformat_alt, size: 17), label: Text('العربية')),
-                            ButtonSegment(value: 'en', icon: Icon(CupertinoIcons.textformat, size: 17), label: Text('English')),
-                          ],
-                          selected: {store.languageCode},
-                          onSelectionChanged: (v) => store.setLanguage(v.first),
-                        ),
-                      ),
-                    ),
+                    Row(children: [
+                      _tileIcon(context, CupertinoIcons.globe),
+                      const SizedBox(width: 12),
+                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(tr('اللغة', 'Language'), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+                        const SizedBox(height: 2),
+                        Text(tr('اختر لغة واجهة التطبيق', 'Choose the app interface language'), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48))),
+                      ])),
+                    ]),
+                    const SizedBox(height: 15),
+                    Row(children: [
+                      Expanded(child: _settingsChoice(
+                        context,
+                        selected: store.languageCode == 'ar',
+                        icon: CupertinoIcons.textformat_alt,
+                        title: 'العربية',
+                        subtitle: 'RTL',
+                        onTap: () => store.setLanguage('ar'),
+                      )),
+                      const SizedBox(width: 10),
+                      Expanded(child: _settingsChoice(
+                        context,
+                        selected: store.languageCode == 'en',
+                        icon: CupertinoIcons.textformat,
+                        title: 'English',
+                        subtitle: 'LTR',
+                        onTap: () => store.setLanguage('en'),
+                      )),
+                    ]),
                   ],
                 ),
               ),
@@ -79,53 +104,81 @@ class SettingsScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Row(children: [
-                      _tileIcon(context, store.theme == 'light' ? CupertinoIcons.sun_max_fill : CupertinoIcons.moon_fill),
+                      _tileIcon(context, store.theme == 'light' ? CupertinoIcons.sun_max_fill : CupertinoIcons.moon_stars_fill),
                       const SizedBox(width: 12),
                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(tr('مظهر التطبيق', 'App Appearance'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
-                        Text(tr('اختر الوضع الفاتح أو الداكن وسيتم حفظ اختيارك', 'Choose light or dark mode and your choice will be saved'), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5))),
+                        Text(tr('مظهر التطبيق', 'App Appearance'), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+                        const SizedBox(height: 2),
+                        Text(tr('اختر المظهر الأنسب لك وسيتم حفظه تلقائياً', 'Choose your preferred appearance; it is saved automatically'), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48))),
                       ])),
                     ]),
                     const SizedBox(height: 15),
-                    SegmentedButton<String>(
-                      segments: [
-                        ButtonSegment(value: 'dark', icon: const Icon(CupertinoIcons.moon_fill), label: Text(tr('داكن', 'Dark'))),
-                        ButtonSegment(value: 'light', icon: const Icon(CupertinoIcons.sun_max_fill), label: Text(tr('فاتح', 'Light'))),
-                      ],
-                      selected: {store.theme},
-                      onSelectionChanged: (v) => store.setTheme(v.first),
-                    ),
+                    Row(children: [
+                      Expanded(child: _settingsChoice(
+                        context,
+                        selected: store.theme == 'dark',
+                        icon: CupertinoIcons.moon_stars_fill,
+                        title: tr('داكن', 'Dark'),
+                        subtitle: tr('مريح للعين', 'Easy on eyes'),
+                        onTap: () => store.setTheme('dark'),
+                      )),
+                      const SizedBox(width: 10),
+                      Expanded(child: _settingsChoice(
+                        context,
+                        selected: store.theme == 'light',
+                        icon: CupertinoIcons.sun_max_fill,
+                        title: tr('فاتح', 'Light'),
+                        subtitle: tr('واضح ومشرق', 'Bright & clear'),
+                        onTap: () => store.setTheme('light'),
+                      )),
+                    ]),
                   ],
                 ),
               ),
-              const SizedBox(height: 14),
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(24),
-                  onTap: () => Navigator.of(context).push(CupertinoPageRoute(builder: (_) => const AdminGateScreen())),
-                  child: GlassCard(
-                    child: Row(children: [
-                      Container(
-                        width: 52,
-                        height: 52,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(colors: [Theme.of(context).colorScheme.primary, Theme.of(context).colorScheme.primary.withValues(alpha: .65)]),
-                          borderRadius: BorderRadius.circular(17),
-                          boxShadow: [BoxShadow(color: Theme.of(context).colorScheme.primary.withValues(alpha: .24), blurRadius: 20, offset: const Offset(0, 8))],
+              FutureBuilder<bool>(
+                future: _adminVisibility,
+                builder: (context, snapshot) {
+                  // Important: while checking, or if the server cannot verify this
+                  // device, render absolutely nothing. This prevents the Admin card
+                  // from briefly flashing on unauthorized devices.
+                  if (snapshot.data != true) return const SizedBox.shrink();
+                  return Column(
+                    children: [
+                      const SizedBox(height: 14),
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(24),
+                          onTap: () async {
+                            await Navigator.of(context).push(CupertinoPageRoute(builder: (_) => const AdminGateScreen()));
+                            await _refreshAdminVisibility();
+                          },
+                          child: GlassCard(
+                            child: Row(children: [
+                              Container(
+                                width: 52,
+                                height: 52,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(colors: [Theme.of(context).colorScheme.primary, Theme.of(context).colorScheme.primary.withValues(alpha: .65)]),
+                                  borderRadius: BorderRadius.circular(17),
+                                  boxShadow: [BoxShadow(color: Theme.of(context).colorScheme.primary.withValues(alpha: .24), blurRadius: 20, offset: const Offset(0, 8))],
+                                ),
+                                child: const Icon(CupertinoIcons.lock_shield_fill, color: Colors.white, size: 27),
+                              ),
+                              const SizedBox(width: 13),
+                              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text(tr('لوحة تحكم الأدمن', 'Admin Control Panel'), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+                                const SizedBox(height: 3),
+                                Text(tr('دخول مشفر ومربوط بهذا الجهاز فقط', 'Encrypted access locked to this device'), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .52))),
+                              ])),
+                              Icon(CupertinoIcons.chevron_forward, size: 18, color: Theme.of(context).colorScheme.primary),
+                            ]),
+                          ),
                         ),
-                        child: const Icon(CupertinoIcons.lock_shield_fill, color: Colors.white, size: 27),
                       ),
-                      const SizedBox(width: 13),
-                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(tr('لوحة تحكم الأدمن', 'Admin Control Panel'), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
-                        const SizedBox(height: 3),
-                        Text(tr('دخول مشفر ومربوط بهذا الجهاز فقط', 'Encrypted access locked to this device'), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .52))),
-                      ])),
-                      Icon(CupertinoIcons.chevron_forward, size: 18, color: Theme.of(context).colorScheme.primary),
-                    ]),
-                  ),
-                ),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 14),
               GlassCard(
@@ -145,6 +198,61 @@ class SettingsScreen extends StatelessWidget {
           );
         },
       );
+
+  Widget _settingsChoice(
+    BuildContext context, {
+    required bool selected,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      decoration: BoxDecoration(
+        color: selected ? primary.withValues(alpha: .14) : onSurface.withValues(alpha: .035),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: selected ? primary.withValues(alpha: .55) : onSurface.withValues(alpha: .08), width: selected ? 1.4 : 1),
+        boxShadow: selected ? [BoxShadow(color: primary.withValues(alpha: .13), blurRadius: 18, offset: const Offset(0, 7))] : null,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 14),
+            child: Row(children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: selected ? primary : onSurface.withValues(alpha: .07),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 19, color: selected ? Colors.white : onSurface.withValues(alpha: .72)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5, color: selected ? primary : onSurface)),
+                const SizedBox(height: 2),
+                Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, color: onSurface.withValues(alpha: .45))),
+              ])),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: selected
+                    ? Icon(CupertinoIcons.checkmark_circle_fill, key: const ValueKey(true), color: primary, size: 21)
+                    : Icon(CupertinoIcons.circle, key: const ValueKey(false), color: onSurface.withValues(alpha: .22), size: 21),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _tileIcon(BuildContext context, IconData icon) => Container(
         width: 46,

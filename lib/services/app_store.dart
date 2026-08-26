@@ -44,6 +44,8 @@ class AppStore extends ChangeNotifier {
 
   bool get isArabic => languageCode == 'ar';
   List<ImportedFile> get signedFiles => files.where((e) => e.kind == 'Signed IPA').toList();
+  // Signed outputs are intentionally kept out of the normal imported-files list.
+  List<ImportedFile> get importedFiles => files.where((e) => e.kind != 'Signed IPA').toList();
 
   Future<void> setLanguage(String value) async {
     languageCode = value;

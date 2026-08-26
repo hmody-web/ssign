@@ -118,6 +118,11 @@ class SigningService {
     await _channel.invokeMethod<void>('shareFile', {'path': fixed});
   }
 
+  Future<void> saveImageToPhotos(String path) async {
+    final fixed = await _resolveExistingPath(path);
+    await _channel.invokeMethod<void>('saveImageToPhotos', {'path': fixed});
+  }
+
   Future<bool> install(String path) async {
     try {
       final fixed = await _resolveExistingPath(path);

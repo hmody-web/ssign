@@ -5,6 +5,7 @@ import ZIPFoundation
 import ZSign
 import CryptoKit
 import LocalAuthentication
+import Photos
 
 final class SignNativePlugin: NSObject, FlutterPlugin {
   private let installServer = LocalInstallServer()
@@ -25,6 +26,7 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
         catch { DispatchQueue.main.async { result(FlutterError(code:"SIGN_FAILED",message:error.localizedDescription,details:nil)) } }
       }
     case "shareFile": share(args, result: result)
+    case "saveImageToPhotos": saveImageToPhotos(args, result: result)
     case "installIpa": install(args, result: result)
     case "savePassword": savePassword(args,result:result)
     case "loadPassword": loadPassword(args,result:result)
@@ -430,6 +432,36 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
           } catch { result(FlutterError(code:"INSTALL_FAILED",message:error.localizedDescription,details:nil)) }
         }
       } catch { DispatchQueue.main.async { result(FlutterError(code:"INSTALL_FAILED",message:error.localizedDescription,details:nil)) } }
+    }
+  }
+
+
+  private func saveImageToPhotos(_ args:[String:Any], result:@escaping FlutterResult) {
+    guard let rawPath = args["path"] as? String else { result(FlutterError(code:"BAD_PATH",message:"Missing path",details:nil)); return }
+    let path = recoverDocumentPath(rawPath)
+    guard let image = UIImage(contentsOfFile: path) else { result(FlutterError(code:"BAD_IMAGE",message:"Could not read image",details:nil)); return }
+
+    func performSave() {
+      PHPhotoLibrary.shared().performChanges({
+        PHAssetChangeRequest.creationRequestForAsset(from: image)
+      }) { ok, error in
+        DispatchQueue.main.async {
+          if ok { result(nil) }
+          else { result(FlutterError(code:"PHOTO_SAVE_FAILED",message:error?.localizedDescription ?? "Could not save image",details:nil)) }
+        }
+      }
+    }
+
+    if #available(iOS 14, *) {
+      PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+        if status == .authorized || status == .limited { performSave() }
+        else { DispatchQueue.main.async { result(FlutterError(code:"PHOTO_PERMISSION",message:"Photo library permission denied",details:nil)) } }
+      }
+    } else {
+      PHPhotoLibrary.requestAuthorization { status in
+        if status == .authorized { performSave() }
+        else { DispatchQueue.main.async { result(FlutterError(code:"PHOTO_PERMISSION",message:"Photo library permission denied",details:nil)) } }
+      }
     }
   }
 

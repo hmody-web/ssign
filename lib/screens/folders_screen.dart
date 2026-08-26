@@ -192,10 +192,41 @@ class _FoldersScreenState extends State<FoldersScreen> {
     }
   }
 
+  bool _isImageFile(FileSystemEntity entity) {
+    if (entity is! File) return false;
+    return const {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.bmp', '.tif', '.tiff'}
+        .contains(p.extension(entity.path).toLowerCase());
+  }
+
+  bool _isExtractable(FileSystemEntity entity) {
+    if (entity is! File) return false;
+    final ext = p.extension(entity.path).toLowerCase();
+    return ext == '.zip' || ext == '.ipa';
+  }
+
+  Future<void> _openImage(File file) async {
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (_) => _ImagePreviewPage(file: file, signing: signing),
+      ),
+    );
+  }
+
+  Future<void> _saveImage(File file) async {
+    try {
+      await signing.saveImageToPhotos(file.path);
+      if (mounted) showAppNotice(context, tr('تم حفظ الصورة في الاستوديو.', 'Image saved to Photos.'));
+    } catch (_) {
+      if (mounted) showAppNotice(context, tr('تعذر حفظ الصورة في الاستوديو.', 'Could not save the image to Photos.'), type: AppNoticeType.error);
+    }
+  }
+
   Future<void> _actions(FileSystemEntity entity) async {
     final isDir = entity is Directory;
     final isApp = _isAppBundle(entity);
-    final isZip = entity is File && p.extension(entity.path).toLowerCase() == '.zip';
+    final isExtractable = _isExtractable(entity);
+    final isImage = _isImageFile(entity);
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -208,7 +239,10 @@ class _FoldersScreenState extends State<FoldersScreen> {
             padding: const EdgeInsets.all(14),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               ListTile(leading: Icon(isDir ? CupertinoIcons.folder_fill : CupertinoIcons.doc_fill), title: Text(p.basename(entity.path), maxLines: 1, overflow: TextOverflow.ellipsis)),
-              if (isZip) ListTile(leading: const Icon(CupertinoIcons.archivebox), title: Text(tr('استخراج إلى...', 'Extract to...')), onTap: () { Navigator.pop(ctx); _extract(entity); }),
+              if (isExtractable) ListTile(leading: const Icon(CupertinoIcons.archivebox), title: Text(p.extension(entity.path).toLowerCase() == '.ipa' ? tr('استخراج ملفات التطبيق', 'Extract application files') : tr('استخراج إلى...', 'Extract to...')), onTap: () { Navigator.pop(ctx); _extract(entity as File); }),
+              if (isImage) ListTile(leading: const Icon(CupertinoIcons.photo), title: Text(tr('فتح', 'Open')), onTap: () { Navigator.pop(ctx); _openImage(entity as File); }),
+              if (isImage) ListTile(leading: const Icon(CupertinoIcons.square_arrow_down), title: Text(tr('حفظ في الاستوديو', 'Save to Photos')), onTap: () { Navigator.pop(ctx); _saveImage(entity as File); }),
+              if (!isDir) ListTile(leading: const Icon(CupertinoIcons.share), title: Text(tr('مشاركة', 'Share')), onTap: () async { Navigator.pop(ctx); try { await signing.share((entity as File).path); } catch (_) { if (mounted) showAppNotice(context, tr('تعذرت مشاركة الملف.', 'Could not share the file.'), type: AppNoticeType.error); } }),
               if (isApp) ListTile(leading: const Icon(CupertinoIcons.signature), title: Text(tr('توقيع', 'Sign')), onTap: () { Navigator.pop(ctx); _signApp(entity as Directory); }),
               if (isApp) ListTile(leading: const Icon(CupertinoIcons.arrow_down_circle), title: Text(tr('تثبيت', 'Install')), onTap: () { Navigator.pop(ctx); _installApp(entity as Directory); }),
               ListTile(leading: const Icon(CupertinoIcons.arrow_right_arrow_left), title: Text(tr('نقل', 'Move')), onTap: () async {
@@ -261,7 +295,12 @@ class _FoldersScreenState extends State<FoldersScreen> {
                               borderRadius: BorderRadius.circular(12),
                               child: Image.file(File(iconPath), width: 44, height: 44, fit: BoxFit.cover),
                             )
-                          : Icon(isApp ? CupertinoIcons.app_badge : isDir ? CupertinoIcons.folder_fill : CupertinoIcons.doc_fill, color: Theme.of(context).colorScheme.primary),
+                          : _isImageFile(e)
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Image.file(File(e.path), width: 48, height: 48, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Icon(CupertinoIcons.photo, color: Theme.of(context).colorScheme.primary)),
+                                )
+                              : Icon(isApp ? CupertinoIcons.app_badge : isDir ? CupertinoIcons.folder_fill : CupertinoIcons.doc_fill, color: Theme.of(context).colorScheme.primary),
                       title: Text(isApp && appName != null && appName.trim().isNotEmpty ? appName : p.basename(e.path), maxLines: 1, overflow: TextOverflow.ellipsis),
                       subtitle: isApp ? Text(p.basename(e.path), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .45))) : null,
                       trailing: IconButton(icon: const Icon(CupertinoIcons.ellipsis), onPressed: () => _actions(e)),
@@ -285,6 +324,50 @@ class _FoldersScreenState extends State<FoldersScreen> {
                 ),
     );
   }
+}
+
+class _ImagePreviewPage extends StatelessWidget {
+  final File file;
+  final SigningService signing;
+  const _ImagePreviewPage({required this.file, required this.signing});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          title: Text(p.basename(file.path), maxLines: 1, overflow: TextOverflow.ellipsis),
+          actions: [
+            IconButton(
+              tooltip: tr('حفظ', 'Save'),
+              onPressed: () async {
+                try {
+                  await signing.saveImageToPhotos(file.path);
+                  if (context.mounted) showAppNotice(context, tr('تم حفظ الصورة في الاستوديو.', 'Image saved to Photos.'));
+                } catch (_) {
+                  if (context.mounted) showAppNotice(context, tr('تعذر حفظ الصورة.', 'Could not save the image.'), type: AppNoticeType.error);
+                }
+              },
+              icon: const Icon(CupertinoIcons.square_arrow_down),
+            ),
+            IconButton(
+              tooltip: tr('مشاركة', 'Share'),
+              onPressed: () => signing.share(file.path),
+              icon: const Icon(CupertinoIcons.share),
+            ),
+          ],
+        ),
+        body: SafeArea(
+          child: Center(
+            child: InteractiveViewer(
+              minScale: .7,
+              maxScale: 6,
+              child: Image.file(file, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(CupertinoIcons.exclamationmark_triangle, color: Colors.white, size: 54)),
+            ),
+          ),
+        ),
+      );
 }
 
 Future<String?> showFolderDestinationPicker(BuildContext context, {String? title}) async {

@@ -82,6 +82,19 @@ class AdminService {
   Future<String?> get deviceId async => (await SharedPreferences.getInstance()).getString(_deviceIdKey);
   bool get hasSession => _accessToken?.isNotEmpty == true;
 
+  /// Lightweight server check used only to decide whether the Admin card should
+  /// be visible in Settings. Real access still requires the signed challenge.
+  Future<bool> isThisDeviceAdmin() async {
+    final id = await deviceId;
+    if (id == null || id.isEmpty) return false;
+    try {
+      final r = await _json('device_status', method: 'POST', body: {'device_id': id});
+      return r['authorized'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<AdminIdentity> identity() async {
     final m = await _channel.invokeMapMethod<String, dynamic>('getIdentity');
     if (m == null || '${m['publicKey'] ?? ''}'.isEmpty) {

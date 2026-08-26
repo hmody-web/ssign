@@ -19,4 +19,6 @@
 <key>LSSupportsOpeningDocumentsInPlace</key><true/>
 <key>UIFileSharingEnabled</key><true/>
 <key>NSFaceIDUsageDescription</key><string>يستخدم التطبيق Face ID للتحقق من هوية الأدمن قبل فتح لوحة التحكم.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>يستخدم التطبيق إذن الصور لحفظ الصور التي تختار حفظها في الاستوديو.</string>
 </dict></plist>
