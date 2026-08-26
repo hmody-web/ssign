@@ -1,6 +1,5 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../models/remote_app.dart';
 import '../models/sign_models.dart';
 import '../services/app_download_manager.dart';
@@ -295,10 +294,10 @@ class _Stats extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = <_StatData>[
-      _StatData(tr('الحجم', 'SIZE'), FontAwesomeIcons.hardDrive, _size(app.size)),
-      _StatData(tr('التصنيف', 'CATEGORY'), FontAwesomeIcons.layerGroup, app.category.isEmpty ? '—' : app.category),
-      _StatData(tr('الإصدار', 'VERSION'), FontAwesomeIcons.codeBranch, app.version.isEmpty ? '—' : app.version),
-      const _StatData('المطور', FontAwesomeIcons.userGear, 'Alsaray'),
+      _StatData(tr('الحجم', 'SIZE'), Icons.storage_rounded, _size(app.size)),
+      _StatData(tr('التصنيف', 'CATEGORY'), Icons.category_rounded, app.category.isEmpty ? '—' : app.category),
+      _StatData(tr('الإصدار', 'VERSION'), Icons.new_releases_rounded, app.version.isEmpty ? '—' : app.version),
+      const _StatData('المطور', Icons.person_rounded, 'Alsaray'),
     ];
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14),
@@ -355,7 +354,7 @@ class _Stat extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              FaIcon(data.icon, size: 19, color: valueColor),
+              Icon(data.icon, size: 21, color: valueColor),
               const SizedBox(width: 8),
               Flexible(child: Text(data.value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: valueColor))),
             ],
