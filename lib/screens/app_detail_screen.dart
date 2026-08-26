@@ -96,8 +96,9 @@ class _AppDetailScreenState extends State<AppDetailScreen> {
               SliverAppBar(
                 pinned: true,
                 stretch: true,
-                backgroundColor: Theme.of(context).scaffoldBackgroundColor.withValues(alpha: .92),
+                backgroundColor: Colors.transparent,
                 surfaceTintColor: Colors.transparent,
+                shadowColor: Colors.transparent,
                 leading: Padding(
                   padding: const EdgeInsets.all(7),
                   child: _RoundButton(

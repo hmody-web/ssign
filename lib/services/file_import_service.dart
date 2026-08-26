@@ -6,21 +6,25 @@ import '../models/sign_models.dart';
 
 class FileImportService {
   static const _extensions=['ipa','p12','mobileprovision','zip'];
+  static const _blocked = {'jpg','jpeg','png','gif','webp','heic','bmp','tif','tiff','mp4','mov','m4v','avi','mkv','webm','3gp','pdf'};
 
   Future<List<ImportedFile>> pickFiles({List<String>? extensions}) async {
-    final result=await FilePicker.platform.pickFiles(allowMultiple:true,type:FileType.custom,allowedExtensions:extensions??_extensions);
-    if(result==null) return const [];
-    final dir=await _importsDir();
-    final out=<ImportedFile>[];
-    for(final selected in result.files){
-      final source=selected.path;
-      if(source==null) continue;
-      final ext=(selected.extension??'').toLowerCase();
-      final id='${DateTime.now().microsecondsSinceEpoch}_${out.length}';
-      final safe='${id}_${selected.name.replaceAll(RegExp(r'[^A-Za-z0-9._ -]'),'_')}';
-      final dest=p.join(dir.path,safe);
+    final result = extensions == null
+        ? await FilePicker.platform.pickFiles(allowMultiple: true, type: FileType.any)
+        : await FilePicker.platform.pickFiles(allowMultiple: true, type: FileType.custom, allowedExtensions: extensions);
+    if (result == null) return const [];
+    final dir = await _importsDir();
+    final out = <ImportedFile>[];
+    for (final selected in result.files) {
+      final source = selected.path;
+      if (source == null) continue;
+      final ext = (selected.extension ?? p.extension(selected.name).replaceFirst('.', '')).toLowerCase();
+      if (extensions == null && _blocked.contains(ext)) continue;
+      final id = '${DateTime.now().microsecondsSinceEpoch}_${out.length}';
+      final safe = '${id}_${selected.name.replaceAll(RegExp(r'[^A-Za-z0-9._ -]'), '_')}';
+      final dest = p.join(dir.path, safe);
       await File(source).copy(dest);
-      out.add(ImportedFile(id:id,name:selected.name,path:dest,kind:_kind(ext),size:await File(dest).length(),importedAt:DateTime.now()));
+      out.add(ImportedFile(id: id, name: selected.name, path: dest, kind: _kind(ext), size: await File(dest).length(), importedAt: DateTime.now()));
     }
     return out;
   }

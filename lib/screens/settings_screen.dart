@@ -8,7 +8,8 @@ import '../widgets/glass_card.dart';
 import 'certificates_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
+  final Key? topKey;
+  const SettingsScreen({super.key, this.topKey});
   static final Uri _developerUrl = Uri.parse('https://scrptaty.com');
 
   Future<void> _openDeveloperSite(BuildContext context) async {
@@ -26,7 +27,7 @@ class SettingsScreen extends StatelessWidget {
           return ListView(
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 110),
             children: [
-              Text(tr('الإعدادات', 'Settings'), style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -1)),
+              Text(tr('الإعدادات', 'Settings'), key: topKey, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -1)),
               const SizedBox(height: 20),
               GlassCard(
                 padding: EdgeInsets.zero,

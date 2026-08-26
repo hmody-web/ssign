@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/sign_models.dart';
 import '../services/app_store.dart';
 import '../services/file_import_service.dart';
@@ -13,7 +15,8 @@ import '../widgets/glass_card.dart';
 
 class SignScreen extends StatefulWidget {
   final ImportedFile? preparedFile;
-  const SignScreen({super.key, this.preparedFile});
+  final Key? topKey;
+  const SignScreen({super.key, this.preparedFile, this.topKey});
 
   @override
   State<SignScreen> createState() => _SignScreenState();
@@ -167,9 +170,14 @@ class _SignScreenState extends State<SignScreen> {
   }
 
   Future<void> _chooseIpa() async {
-    final v = await importer.pickFiles(extensions: ['ipa']);
+    final v = await importer.pickFiles();
     if (v.isEmpty) return;
-    final f = v.first;
+    final ipaFiles = v.where((e) => e.path.toLowerCase().endsWith('.ipa')).toList();
+    if (ipaFiles.isEmpty) {
+      if (mounted) showAppNotice(context, tr('اختر ملف IPA للتوقيع.', 'Choose an IPA file to sign.'), type: AppNoticeType.error);
+      return;
+    }
+    final f = ipaFiles.first;
     setState(() {
       _resetCopies();
       ipaPath = f.path;
@@ -201,9 +209,16 @@ class _SignScreenState extends State<SignScreen> {
   }
 
   Future<void> _chooseReplacementIcon() async {
-    final items = await importer.pickFiles(extensions: ['png', 'jpg', 'jpeg']);
-    if (items.isEmpty) return;
-    setState(() => replacementIconPath = items.first.path);
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 100);
+    if (picked == null) return;
+    final docs = await getApplicationDocumentsDirectory();
+    final dir = Directory(p.join(docs.path, 'ReplacementIcons'));
+    if (!await dir.exists()) await dir.create(recursive: true);
+    final ext = p.extension(picked.path).isEmpty ? '.jpg' : p.extension(picked.path);
+    final dest = p.join(dir.path, 'icon_${DateTime.now().microsecondsSinceEpoch}$ext');
+    await File(picked.path).copy(dest);
+    if (!mounted) return;
+    setState(() => replacementIconPath = dest);
     _persistDraft();
   }
 
@@ -435,7 +450,7 @@ class _SignScreenState extends State<SignScreen> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 110),
             children: [
-              Text(tr('توقيع تطبيق', 'Sign App'), style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -1)),
+              Text(tr('توقيع تطبيق', 'Sign App'), key: widget.topKey, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -1)),
               const SizedBox(height: 6),
               Text(
                 tr('اختر التطبيق ثم وقّعه بشهادتك', 'IPA → certificate → signed IPA'),

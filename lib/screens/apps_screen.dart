@@ -57,7 +57,8 @@ String _normalizeSearch(String value) => value.trim().toLowerCase();
 
 class AppsScreen extends StatefulWidget {
   final ValueChanged<ImportedFile>? onSignRequested;
-  const AppsScreen({super.key, this.onSignRequested});
+  final Key? topKey;
+  const AppsScreen({super.key, this.onSignRequested, this.topKey});
 
   @override
   State<AppsScreen> createState() => _AppsScreenState();
@@ -65,8 +66,8 @@ class AppsScreen extends StatefulWidget {
 
 class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMixin {
   static const _pageSize = 60;
-  static const _cacheKey = 'ipa.library.cache.v2';
-  static const _cacheSyncKey = 'ipa.library.cache.synced.v2';
+  static const _cacheKey = 'ipa.library.cache.v3.merged';
+  static const _cacheSyncKey = 'ipa.library.cache.synced.v3.merged';
   static const _syncEvery = Duration(minutes: 5);
 
   final _service = IpaLibraryService();
@@ -355,6 +356,24 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
         final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
         return bd.compareTo(ad);
       });
+
+    // دندن من مكتبة السراي يكون دائمًا أول تطبيق في البنر.
+    RemoteApp? dandan;
+    for (final app in list) {
+      final name = app.name.trim().toLowerCase();
+      final nameAr = app.nameAr.trim().toLowerCase();
+      if ((app.storageType == 'alsaray' &&
+              (name == 'دندن' || nameAr == 'دندن')) ||
+          app.bundleId.trim() == 'com.mustm3.app') {
+        dandan = app;
+        break;
+      }
+    }
+
+    if (dandan != null) {
+      list.removeWhere((app) => app.id == dandan!.id);
+      list.insert(0, dandan);
+    }
     return list.take(5).toList();
   }
 
@@ -377,6 +396,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
             padding: const EdgeInsets.fromLTRB(18, 22, 18, 12),
             sliver: SliverToBoxAdapter(
               child: Column(
+                key: widget.topKey,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(

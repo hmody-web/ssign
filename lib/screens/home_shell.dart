@@ -20,6 +20,7 @@ class _HomeShellState extends State<HomeShell> {
   int index = 0;
   late final PageController _pageController;
   ImportedFile? _preparedSignFile;
+  final _topKeys = List<GlobalKey>.generate(4, (_) => GlobalKey());
 
   void _openSignForFile(ImportedFile file) {
     setState(() => _preparedSignFile = file);
@@ -40,6 +41,13 @@ class _HomeShellState extends State<HomeShell> {
 
   void _goToPage(int page) {
     if (page < 0 || page > 3) return;
+    if (page == index) {
+      final ctx = _topKeys[page].currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 360), curve: Curves.easeOutCubic, alignment: 0);
+      }
+      return;
+    }
     _pageController.animateToPage(
       page,
       duration: const Duration(milliseconds: 360),
@@ -61,10 +69,10 @@ class _HomeShellState extends State<HomeShell> {
                 if (index != page) setState(() => index = page);
               },
               children: [
-                AppsScreen(onSignRequested: _openSignForFile),
-                LibraryScreen(onSignRequested: _openSignForFile),
-                SignScreen(preparedFile: _preparedSignFile),
-                const SettingsScreen(),
+                AppsScreen(onSignRequested: _openSignForFile, topKey: _topKeys[0]),
+                LibraryScreen(onSignRequested: _openSignForFile, topKey: _topKeys[1]),
+                SignScreen(preparedFile: _preparedSignFile, topKey: _topKeys[2]),
+                SettingsScreen(topKey: _topKeys[3]),
               ],
             ),
           ),

@@ -7,6 +7,7 @@ import '../models/remote_app.dart';
 
 class IpaLibraryService {
   static const String _proxyBase = 'https://scrptaty.com/apps/ipa';
+  static const String _alsarayApi = 'https://scrptaty.com/apps/alsaray/api.php';
 
   final HttpClient _client = HttpClient()
     ..connectionTimeout = const Duration(seconds: 30);
@@ -16,6 +17,151 @@ class IpaLibraryService {
     int limit = 60,
     String search = '',
   }) async {
+    final safeOffset = offset < 0 ? 0 : offset;
+    final safeLimit = limit <= 0 ? 60 : limit;
+    final term = search.trim();
+
+    List<RemoteApp> alsarayApps = const <RemoteApp>[];
+    Object? alsarayError;
+    try {
+      alsarayApps = await _fetchAlsarayApps(search: term);
+    } catch (e) {
+      alsarayError = e;
+    }
+
+    final result = <RemoteApp>[];
+    final customCount = alsarayApps.length;
+
+    // AlSaray is merged at the beginning of the same library. Pagination is
+    // calculated as one logical list so custom apps are not repeated.
+    if (safeOffset < customCount) {
+      final take = safeLimit.clamp(0, customCount - safeOffset);
+      result.addAll(
+        alsarayApps.skip(safeOffset).take(take),
+      );
+    }
+
+    final remaining = safeLimit - result.length;
+    if (remaining > 0) {
+      final iosBoomOffset =
+          safeOffset <= customCount ? 0 : safeOffset - customCount;
+      try {
+        final iosBoom = await _fetchIosBoomApps(
+          offset: iosBoomOffset,
+          limit: remaining,
+          search: term,
+        );
+        result.addAll(iosBoom);
+      } catch (e) {
+        // Keep the user's private library usable even when the external
+        // source is temporarily unavailable.
+        if (result.isEmpty) {
+          if (alsarayError != null) rethrow;
+          throw e;
+        }
+      }
+    }
+
+    if (result.isEmpty && alsarayError != null) {
+      // If there were no external results either, surface the custom-source
+      // error instead of silently returning an empty library.
+      try {
+        final probe = await _fetchIosBoomApps(
+          offset: safeOffset,
+          limit: safeLimit,
+          search: term,
+        );
+        if (probe.isNotEmpty) return probe;
+      } catch (_) {}
+      throw alsarayError;
+    }
+
+    return result;
+  }
+
+  Future<List<RemoteApp>> _fetchAlsarayApps({String search = ''}) async {
+    final uri = Uri.parse(_alsarayApi);
+    final response = await _jsonGet(uri);
+    final body = await utf8.decoder.bind(response).join();
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw HttpException(
+        _extractError(
+          body,
+          fallback: 'تعذر تحميل مكتبة السراي (${response.statusCode})',
+        ),
+        uri: uri,
+      );
+    }
+
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(body);
+    } catch (_) {
+      throw const FormatException('استجابة مكتبة السراي غير صالحة');
+    }
+
+    if (decoded is! Map || decoded['ok'] != true || decoded['apps'] is! List) {
+      throw const FormatException('استجابة مكتبة السراي غير صالحة');
+    }
+
+    final term = search.trim().toLowerCase();
+    final apps = <RemoteApp>[];
+
+    for (final raw in (decoded['apps'] as List)) {
+      if (raw is! Map) continue;
+      final source = Map<String, dynamic>.from(raw);
+
+      if (term.isNotEmpty) {
+        final haystack = [
+          source['name'],
+          source['developer'],
+          source['description'],
+          source['bundle_id'],
+          source['category'],
+        ].map((e) => (e ?? '').toString()).join(' ').toLowerCase();
+        if (!haystack.contains(term)) continue;
+      }
+
+      final originalId = (source['id'] ?? '').toString();
+      final name = (source['name'] ?? '').toString();
+      final mapped = <String, dynamic>{
+        'id': 'alsaray:$originalId',
+        'slug': originalId.isEmpty ? name : originalId,
+        'name': name,
+        'name_ar': name,
+        'subtitle': (source['description'] ?? '').toString(),
+        'subtitle_ar': (source['description'] ?? '').toString(),
+        'developer_name': (source['developer'] ?? '').toString(),
+        'bundle_id': (source['bundle_id'] ?? '').toString(),
+        'version': (source['version'] ?? '').toString(),
+        'category': (source['category'] ?? '').toString(),
+        'size': source['size'] ?? 0,
+        'icon_url': (source['icon_url'] ?? '').toString(),
+        'download_url': (source['ipa_url'] ?? '').toString(),
+        'storage_type': 'alsaray',
+        'screenshots': source['screenshots'] ?? const <String>[],
+        'created_at': (source['created_at'] ?? source['updated_at'] ?? '').toString(),
+        'download_count': 0,
+      };
+      apps.add(RemoteApp.fromJson(mapped));
+    }
+
+    apps.sort((a, b) {
+      final ad = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bd.compareTo(ad);
+    });
+    return apps;
+  }
+
+  Future<List<RemoteApp>> _fetchIosBoomApps({
+    required int offset,
+    required int limit,
+    String search = '',
+  }) async {
+    if (limit <= 0) return const <RemoteApp>[];
+
     final query = <String, String>{
       'offset': '$offset',
       'limit': '$limit',
@@ -33,9 +179,10 @@ class IpaLibraryService {
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException(
-        _extractError(body,
-            fallback:
-                'تعذر تحميل مكتبة التطبيقات (${response.statusCode})'),
+        _extractError(
+          body,
+          fallback: 'تعذر تحميل مكتبة التطبيقات (${response.statusCode})',
+        ),
         uri: uri,
       );
     }
@@ -168,7 +315,9 @@ class IpaLibraryService {
     // Final fallback: let our server fetch/stream the IPA. Nothing is stored
     // on the server; it simply relays the bytes. This fixes sources that reject
     // direct iOS/CDN requests.
-    if (!result.ok && (result.statusCode == 403 || result.statusCode == 404)) {
+    if (!result.ok &&
+        app.storageType != 'alsaray' &&
+        (result.statusCode == 403 || result.statusCode == 404)) {
       try {
         if (await file.exists()) await file.delete();
       } catch (_) {}
@@ -233,7 +382,11 @@ class IpaLibraryService {
       );
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       request.headers.set('Pragma', 'no-cache');
-      if (!fromProxy) {
+      if (!fromProxy &&
+          (uri.host == 'github.com' ||
+              uri.host.endsWith('.github.com') ||
+              uri.host == 'githubusercontent.com' ||
+              uri.host.endsWith('.githubusercontent.com'))) {
         request.headers.set(HttpHeaders.refererHeader, 'https://github.com/');
       }
 

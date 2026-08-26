@@ -1,8 +1,11 @@
 import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import '../models/sign_models.dart';
 import '../services/app_store.dart';
+import '../services/app_download_manager.dart';
+import '../services/folder_workspace_service.dart';
 import '../services/file_import_service.dart';
 import '../services/signing_service.dart';
 import '../services/localized.dart';
@@ -10,10 +13,13 @@ import '../services/persistent_path_service.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 import 'signed_files_screen.dart';
+import 'folders_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
   final ValueChanged<ImportedFile>? onSignRequested;
-  const LibraryScreen({super.key, this.onSignRequested});
+  final ScrollController? scrollController;
+  final Key? topKey;
+  const LibraryScreen({super.key, this.onSignRequested, this.scrollController, this.topKey});
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
@@ -23,13 +29,24 @@ class _LibraryScreenState extends State<LibraryScreen> {
   final importer = FileImportService();
   final store = AppStore.instance;
   final signer = SigningService();
+  final downloads = AppDownloadManager.instance;
+  final folders = FolderWorkspaceService.instance;
   bool selecting = false;
   final Set<String> selected = {};
 
   @override
   void initState() {
     super.initState();
+    downloads.addListener(_downloadsChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _backfillIpaMetadata());
+  }
+
+  void _downloadsChanged() { if (mounted) setState(() {}); }
+
+  @override
+  void dispose() {
+    downloads.removeListener(_downloadsChanged);
+    super.dispose();
   }
 
   Future<void> _backfillIpaMetadata() async {
@@ -153,6 +170,38 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   bool _isIpa(ImportedFile file) => file.kind == 'IPA' || file.kind == 'Signed IPA' || file.path.toLowerCase().endsWith('.ipa');
 
+  Future<void> _extractArchive(ImportedFile file) async {
+    final dest = await showFolderDestinationPicker(context, title: tr('استخراج داخل المجلدات', 'Extract inside Folders'));
+    if (dest == null) return;
+    if (!mounted) return;
+    showAppNotice(context, tr('سيتم استخراج الملف داخل كرت المجلدات فقط.', 'The archive will be extracted inside Folders only.'));
+    try {
+      await folders.extractZip(zipPath: file.path, relative: dest);
+      if (mounted) showAppNotice(context, tr('تم استخراج الملف بنجاح.', 'Archive extracted successfully.'));
+    } catch (_) {
+      if (mounted) showAppNotice(context, tr('تعذر استخراج الملف المضغوط.', 'Could not extract the archive.'), type: AppNoticeType.error);
+    }
+  }
+
+  Future<void> _copyOrMoveFiles(List<ImportedFile> files, {required bool move}) async {
+    if (files.isEmpty) return;
+    final dest = await showFolderDestinationPicker(context, title: move ? tr('نقل إلى مجلد', 'Move to folder') : tr('نسخ إلى مجلد', 'Copy to folder'));
+    if (dest == null) return;
+    for (final f in files) {
+      try {
+        if (move) {
+          await folders.moveInto(sourcePath: f.path, relative: dest, name: p.basename(f.path));
+          await store.removeFile(f.id);
+        } else {
+          await folders.copyInto(sourcePath: f.path, relative: dest, name: p.basename(f.path));
+        }
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    setState(() { selected.clear(); selecting = false; });
+    showAppNotice(context, move ? tr('تم نقل الملفات إلى المجلدات.', 'Files moved to Folders.') : tr('تم نسخ الملفات إلى المجلدات.', 'Files copied to Folders.'));
+  }
+
   Future<void> _showFileActions(ImportedFile file) async {
     final isIpa = _isIpa(file);
     await showModalBottomSheet<void>(
@@ -235,6 +284,32 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                   const SizedBox(height: 10),
                 ],
+                if (file.kind == 'Archive' || file.path.toLowerCase().endsWith('.zip')) ...[
+                  _actionTile(
+                    context,
+                    icon: CupertinoIcons.archivebox,
+                    title: tr('استخراج الملف', 'Extract archive'),
+                    subtitle: tr('يتم الاستخراج داخل كرت المجلدات فقط', 'Extraction is available inside Folders only'),
+                    onTap: () { Navigator.pop(ctx); _extractArchive(file); },
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                _actionTile(
+                  context,
+                  icon: CupertinoIcons.arrow_right_arrow_left,
+                  title: tr('نقل', 'Move'),
+                  subtitle: tr('نقل الملف إلى كرت المجلدات', 'Move this file into Folders'),
+                  onTap: () { Navigator.pop(ctx); _copyOrMoveFiles([file], move: true); },
+                ),
+                const SizedBox(height: 10),
+                _actionTile(
+                  context,
+                  icon: CupertinoIcons.doc_on_doc,
+                  title: tr('نسخ', 'Copy'),
+                  subtitle: tr('نسخ الملف إلى كرت المجلدات', 'Copy this file into Folders'),
+                  onTap: () { Navigator.pop(ctx); _copyOrMoveFiles([file], move: false); },
+                ),
+                const SizedBox(height: 10),
                 _actionTile(
                   context,
                   icon: CupertinoIcons.share,
@@ -319,6 +394,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget build(BuildContext context) => AnimatedBuilder(
         animation: store,
         builder: (context, _) => CustomScrollView(
+          controller: widget.scrollController,
           slivers: [
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
@@ -330,7 +406,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const SizedBox(height: 8),
-                          const Text('Booma | بومة', style: TextStyle(fontSize: 34, fontWeight: FontWeight.w800, letterSpacing: -1.2)),
+                          Text('Booma | بومة', key: widget.topKey, style: TextStyle(fontSize: 34, fontWeight: FontWeight.w800, letterSpacing: -1.2)),
                         
                         ],
                       ),
@@ -417,6 +493,51 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               ),
             ),
+            if (downloads.activeDownloads.isNotEmpty)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+                sliver: SliverToBoxAdapter(
+                  child: GlassCard(
+                    padding: const EdgeInsets.all(15),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [Icon(CupertinoIcons.arrow_down_circle_fill, color: Theme.of(context).colorScheme.primary), const SizedBox(width: 8), Text(tr('جاري التنزيل', 'Downloading'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16))]),
+                      const SizedBox(height: 12),
+                      ...downloads.activeDownloads.map((e) {
+                        final snap = e.value;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Row(children: [Expanded(child: Text(e.key.displayName(store.isArabic), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700))), Text(snap.progress == null ? tr('جاري التنزيل', 'Downloading') : '${(snap.progress! * 100).toStringAsFixed(0)}%')]),
+                            const SizedBox(height: 6),
+                            LinearProgressIndicator(value: snap.progress),
+                          ]),
+                        );
+                      }),
+                    ]),
+                  ),
+                ),
+              ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+              sliver: SliverToBoxAdapter(
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(24),
+                    onTap: () => Navigator.of(context).push(CupertinoPageRoute(builder: (_) => const FoldersScreen())),
+                    child: GlassCard(
+                      padding: const EdgeInsets.all(15),
+                      child: Row(children: [
+                        Container(width: 48, height: 48, decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary.withValues(alpha: .13), borderRadius: BorderRadius.circular(14)), child: Icon(CupertinoIcons.folder_fill, color: Theme.of(context).colorScheme.primary)),
+                        const SizedBox(width: 12),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(tr('المجلدات', 'Folders'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)), const SizedBox(height: 2), Text(tr('إنشاء مجلدات وتنظيم ونقل ونسخ واستخراج الملفات', 'Create folders, organize, move, copy and extract files'), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48)))])),
+                        const Icon(CupertinoIcons.chevron_left, size: 18),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+            ),
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 26, 20, 10),
@@ -460,7 +581,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           label: Text(selected.length == store.files.length ? tr('إلغاء تحديد الكل', 'Clear all') : tr('تحديد الكل', 'Select all')),
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
+                      IconButton.filledTonal(
+                        tooltip: tr('نقل', 'Move'),
+                        onPressed: selected.isEmpty ? null : () => _copyOrMoveFiles(store.files.where((f) => selected.contains(f.id)).toList(), move: true),
+                        icon: const Icon(CupertinoIcons.arrow_right_arrow_left),
+                      ),
+                      const SizedBox(width: 6),
+                      IconButton.filledTonal(
+                        tooltip: tr('نسخ', 'Copy'),
+                        onPressed: selected.isEmpty ? null : () => _copyOrMoveFiles(store.files.where((f) => selected.contains(f.id)).toList(), move: false),
+                        icon: const Icon(CupertinoIcons.doc_on_doc),
+                      ),
+                      const SizedBox(width: 8),
                       FilledButton.icon(
                         style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
                         onPressed: selected.isEmpty ? null : _deleteSelected,

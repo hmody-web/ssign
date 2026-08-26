@@ -31,6 +31,12 @@ class AppDownloadManager extends ChangeNotifier {
   final AppStore _store = AppStore.instance;
   final Map<String, AppDownloadSnapshot> _states = {};
   final Map<String, IpaDownloadControl> _controls = {};
+  final Map<String, RemoteApp> _apps = {};
+
+  List<MapEntry<RemoteApp, AppDownloadSnapshot>> get activeDownloads => _states.entries
+      .where((e) => e.value.downloading && _apps.containsKey(e.key))
+      .map((e) => MapEntry(_apps[e.key]!, e.value))
+      .toList();
 
   AppDownloadSnapshot stateFor(RemoteApp app) {
     final current = _states[app.id];
@@ -51,6 +57,7 @@ class AppDownloadManager extends ChangeNotifier {
   }
 
   Future<ImportedFile?> start(RemoteApp app) async {
+    _apps[app.id] = app;
     final existing = downloadedFile(app);
     if (existing != null) {
       _states[app.id] = AppDownloadSnapshot(file: existing);
