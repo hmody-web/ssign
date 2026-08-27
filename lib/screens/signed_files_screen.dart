@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../models/sign_models.dart';
@@ -11,17 +12,21 @@ import '../widgets/glass_card.dart';
 
 class SignedFilesScreen extends StatefulWidget {
   final ValueChanged<ImportedFile> onSignRequested;
-  const SignedFilesScreen({super.key, required this.onSignRequested});
+  final String? highlightFileId;
+  const SignedFilesScreen({super.key, required this.onSignRequested, this.highlightFileId});
 
   @override
   State<SignedFilesScreen> createState() => _SignedFilesScreenState();
 }
 
-class _SignedFilesScreenState extends State<SignedFilesScreen> {
+class _SignedFilesScreenState extends State<SignedFilesScreen> with SingleTickerProviderStateMixin {
   final store = AppStore.instance;
   final signer = SigningService();
   bool selecting = false;
   final Set<String> selected = {};
+  bool _highlightActive = false;
+  Timer? _highlightTimer;
+  late final AnimationController _highlightController;
 
   List<ImportedFile> get items => store.signedFiles.reversed.toList();
 
@@ -205,8 +210,20 @@ class _SignedFilesScreenState extends State<SignedFilesScreen> {
   @override
   void initState() {
     super.initState();
+    _highlightController = AnimationController(vsync: this, duration: const Duration(milliseconds: 520), lowerBound: .25, upperBound: 1);
+    _highlightActive = widget.highlightFileId?.isNotEmpty == true;
+    if (_highlightActive) {
+      _highlightController.repeat(reverse: true);
+      _highlightTimer = Timer(const Duration(seconds: 2), () {
+        _highlightController.stop();
+        if (mounted) setState(() => _highlightActive = false);
+      });
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) => _repairMissingIcons());
   }
+
+  @override
+  void dispose() { _highlightTimer?.cancel(); _highlightController.dispose(); super.dispose(); }
 
   Future<void> _repairMissingIcons() async {
     final snapshot = List<ImportedFile>.from(store.signedFiles);
@@ -319,7 +336,21 @@ class _SignedFilesScreenState extends State<SignedFilesScreen> {
                         if (selecting) { _toggle(f); return; }
                         _showSideActions(f);
                       },
-                      child: GlassCard(
+                      child: AnimatedBuilder(
+                        animation: _highlightController,
+                        builder: (context, child) {
+                          final active = _highlightActive && widget.highlightFileId == f.id;
+                          return Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(22),
+                              boxShadow: active
+                                  ? [BoxShadow(color: const Color(0xFF67C8FF).withValues(alpha: .12 + (.30 * _highlightController.value)), blurRadius: 18 + (10 * _highlightController.value), spreadRadius: 1 + _highlightController.value)]
+                                  : const [],
+                            ),
+                            child: child,
+                          );
+                        },
+                        child: GlassCard(
                         padding: const EdgeInsets.all(14),
                         child: Row(
                           children: [
@@ -339,6 +370,7 @@ class _SignedFilesScreenState extends State<SignedFilesScreen> {
                             if (!selecting) Icon(CupertinoIcons.chevron_left, size: 19, color: Theme.of(context).colorScheme.primary),
                           ],
                         ),
+                      ),
                       ),
                     ),
                   );

@@ -180,6 +180,7 @@ class AdminService {
     String? ipaPath,
     String? iconPath,
     List<String> screenshotPaths = const [],
+    List<String> keepScreenshotUrls = const [],
     void Function(double p)? onProgress,
   }) async {
     final fields = {
@@ -191,6 +192,7 @@ class AdminService {
       'version': version,
       'build': build,
       'category': category,
+      'keep_screenshots': jsonEncode(keepScreenshotUrls),
     };
     final files = <String, List<String>>{};
     if (ipaPath?.isNotEmpty == true) files['ipa'] = [ipaPath!];

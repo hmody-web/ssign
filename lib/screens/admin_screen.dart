@@ -4,6 +4,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/admin_service.dart';
+import '../services/ipa_library_service.dart';
+import '../services/signing_service.dart';
 import '../services/localized.dart';
 import '../widgets/glass_card.dart';
 
@@ -175,9 +177,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   bool _loading = true;
   String _query = '';
   String? _error;
+  List<String> _boomaCategories = const [];
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() { super.initState(); _load(); _loadBoomaCategories(); }
+
+  Future<void> _loadBoomaCategories() async {
+    try {
+      final values = await IpaLibraryService().fetchBoomaCategories();
+      if (mounted) setState(() => _boomaCategories = values);
+    } catch (_) {}
+  }
 
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
@@ -186,15 +196,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
-  List<String> get _availableCategories {
-    final values = (_data?.apps ?? const <AdminApp>[])
-        .map((app) => app.category.trim())
-        .where((category) => category.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort((a, b) => _adminCategoryDisplay(a).compareTo(_adminCategoryDisplay(b)));
-    return values;
-  }
+  List<String> get _availableCategories => _boomaCategories;
 
   Future<void> _openForm([AdminApp? app]) async {
     final changed = await Navigator.of(context).push<bool>(CupertinoPageRoute(
@@ -284,6 +286,8 @@ class _AdminAppFormScreenState extends State<AdminAppFormScreen> {
   late final TextEditingController _name, _developer, _bundle, _version, _build, _description;
   String? _selectedCategory;
   String? _ipaPath, _iconPath, _extractedIconUrl, _iconSource;
+  final SigningService _signing = SigningService();
+  final List<String> _existingShots = [];
   int _inspectedSize = 0;
   final List<String> _shots = [];
   bool _busy = false;
@@ -296,6 +300,8 @@ class _AdminAppFormScreenState extends State<AdminAppFormScreen> {
     _name = TextEditingController(text: a?.name ?? ''); _developer = TextEditingController(text: a?.developer ?? ''); _bundle = TextEditingController(text: a?.bundleId ?? ''); _version = TextEditingController(text: a?.version ?? ''); _build = TextEditingController(text: a?.build ?? ''); _description = TextEditingController(text: a?.description ?? '');
     final currentCategory = a?.category.trim() ?? '';
     _selectedCategory = currentCategory.isEmpty ? null : currentCategory;
+    _extractedIconUrl = (a?.iconUrl.trim().isNotEmpty ?? false) ? a!.iconUrl : null;
+    _existingShots.addAll(a?.screenshots ?? const <String>[]);
   }
 
   Future<void> _pickIpa() async {
@@ -304,17 +310,29 @@ class _AdminAppFormScreenState extends State<AdminAppFormScreen> {
     if (!path.toLowerCase().endsWith('.ipa')) { setState(() => _error = 'اختر ملف IPA.'); return; }
     setState(() { _ipaPath = path; _iconPath = null; _extractedIconUrl = null; _iconSource = null; _inspectedSize = 0; _busy = true; _progress = 0; _error = null; });
     try {
-      final meta = await AdminService.instance.inspectIpa(path, onProgress: (p) { if (mounted) setState(() => _progress = p); });
-      final m = Map<String, dynamic>.from(meta['meta'] is Map ? meta['meta'] as Map : const {});
-      _name.text = '${m['name'] ?? ''}'.trim();
-      _bundle.text = '${m['bundle_id'] ?? ''}'.trim();
-      _version.text = '${m['version'] ?? ''}'.trim();
-      _build.text = '${m['build'] ?? ''}'.trim();
-      _inspectedSize = int.tryParse('${m['size'] ?? 0}') ?? 0;
-      final extracted = '${m['icon_preview_url'] ?? ''}'.trim();
-      _extractedIconUrl = extracted.isEmpty ? null : extracted;
-      final source = '${m['icon_source'] ?? ''}'.trim();
-      _iconSource = source.isEmpty ? null : source;
+      final local = await _signing.inspectIpa(path);
+      _name.text = '${local['displayName'] ?? ''}'.trim();
+      _bundle.text = '${local['bundleId'] ?? ''}'.trim();
+      _version.text = '${local['version'] ?? ''}'.trim();
+      _build.text = '${local['build'] ?? ''}'.trim();
+      _inspectedSize = await File(path).length();
+      final localIcon = '${local['iconPath'] ?? ''}'.trim();
+      if (localIcon.isNotEmpty && File(localIcon).existsSync()) {
+        _iconPath = localIcon;
+        _extractedIconUrl = null;
+        _iconSource = 'من ملف IPA';
+      } else {
+        final meta = await AdminService.instance.inspectIpa(path, onProgress: (p) { if (mounted) setState(() => _progress = p); });
+        final m = Map<String, dynamic>.from(meta['meta'] is Map ? meta['meta'] as Map : const {});
+        if (_name.text.isEmpty) _name.text = '${m['name'] ?? ''}'.trim();
+        if (_bundle.text.isEmpty) _bundle.text = '${m['bundle_id'] ?? ''}'.trim();
+        if (_version.text.isEmpty) _version.text = '${m['version'] ?? ''}'.trim();
+        if (_build.text.isEmpty) _build.text = '${m['build'] ?? ''}'.trim();
+        final extracted = '${m['icon_preview_url'] ?? ''}'.trim();
+        _extractedIconUrl = extracted.isEmpty ? null : extracted;
+        final source = '${m['icon_source'] ?? ''}'.trim();
+        _iconSource = source.isEmpty ? null : source;
+      }
       if (_name.text.isEmpty && _bundle.text.isEmpty && _version.text.isEmpty && _build.text.isEmpty) {
         _error = 'تم اختيار IPA، لكن لم يتمكن الخادم من قراءة Info.plist. تأكد أن الملف IPA صالح.';
       }
@@ -331,7 +349,7 @@ class _AdminAppFormScreenState extends State<AdminAppFormScreen> {
     if (_selectedCategory == null || _selectedCategory!.trim().isEmpty) { setState(() => _error = 'اختر تصنيف التطبيق.'); return; }
     setState(() { _busy = true; _progress = 0; _error = null; });
     try {
-      await AdminService.instance.saveApp(id: widget.app?.id ?? '', name: _name.text.trim(), developer: _developer.text.trim(), description: _description.text.trim(), bundleId: _bundle.text.trim(), version: _version.text.trim(), build: _build.text.trim(), category: _selectedCategory?.trim() ?? '', ipaPath: _ipaPath, iconPath: _iconPath, screenshotPaths: _shots, onProgress: (p) { if (mounted) setState(() => _progress = p); });
+      await AdminService.instance.saveApp(id: widget.app?.id ?? '', name: _name.text.trim(), developer: _developer.text.trim(), description: _description.text.trim(), bundleId: _bundle.text.trim(), version: _version.text.trim(), build: _build.text.trim(), category: _selectedCategory?.trim() ?? '', ipaPath: _ipaPath, iconPath: _iconPath, screenshotPaths: _shots, keepScreenshotUrls: _existingShots, onProgress: (p) { if (mounted) setState(() => _progress = p); });
       if (mounted) Navigator.pop(context, true);
     } catch (e) { if (mounted) setState(() { _busy = false; _error = e.toString().replaceFirst('Exception: ', ''); }); }
   }
@@ -351,7 +369,7 @@ class _AdminAppFormScreenState extends State<AdminAppFormScreen> {
       Row(children: [Expanded(child: _field(_version, 'الإصدار')), const SizedBox(width: 10), Expanded(child: _field(_build, 'Build'))]), const SizedBox(height: 10),
       _categorySelector(), const SizedBox(height: 10),
       TextField(controller: _description, minLines: 4, maxLines: 7, decoration: _dec('الوصف')), const SizedBox(height: 15),
-      Row(children: [Expanded(child: _picker('أيقونة التطبيق', _iconPath != null ? 'صورة مخصصة ✓' : (_extractedIconUrl != null ? 'مستخرجة تلقائيًا • اضغط للتغيير' : 'اختيار صورة'), CupertinoIcons.photo_fill, _pickIcon)), const SizedBox(width: 10), Expanded(child: _picker('المعاينات', _shots.isEmpty ? 'اختيار صور' : '${_shots.length} صور ✓', CupertinoIcons.rectangle_stack_fill, _pickShots))]),
+      Row(children: [Expanded(child: _picker('أيقونة التطبيق', _iconPath != null ? 'صورة مخصصة ✓' : (_extractedIconUrl != null ? 'مستخرجة تلقائيًا • اضغط للتغيير' : 'اختيار صورة'), CupertinoIcons.photo_fill, _pickIcon)), const SizedBox(width: 10), Expanded(child: _picker('المعاينات', (_shots.isEmpty && _existingShots.isEmpty) ? 'اختيار صور' : '${_shots.length + _existingShots.length} صور ✓', CupertinoIcons.rectangle_stack_fill, _pickShots))]),
       if (_iconPath != null || _extractedIconUrl != null) ...[
         const SizedBox(height: 12),
         Center(child: Column(children: [
@@ -363,7 +381,10 @@ class _AdminAppFormScreenState extends State<AdminAppFormScreen> {
           if (_inspectedSize > 0) Padding(padding: const EdgeInsets.only(top: 3), child: Text('حجم IPA: ${_formatBytes(_inspectedSize)}', style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .45)))),
         ])),
       ],
-      if (_shots.isNotEmpty) ...[const SizedBox(height: 12), SizedBox(height: 140, child: ListView.separated(scrollDirection: Axis.horizontal, itemCount: _shots.length, separatorBuilder: (_, __) => const SizedBox(width: 8), itemBuilder: (_, i) => ClipRRect(borderRadius: BorderRadius.circular(14), child: Image.file(File(_shots[i]), width: 80, height: 140, fit: BoxFit.cover))))],
+      if (_shots.isNotEmpty || _existingShots.isNotEmpty) ...[const SizedBox(height: 12), SizedBox(height: 150, child: ListView(scrollDirection: Axis.horizontal, children: [
+        ..._existingShots.map((url) => Padding(padding: const EdgeInsetsDirectional.only(end: 8), child: Stack(children: [ClipRRect(borderRadius: BorderRadius.circular(14), child: Image.network(url, width: 84, height: 145, fit: BoxFit.cover)), Positioned(top: 5, right: 5, child: InkWell(onTap: () => setState(() => _existingShots.remove(url)), child: Container(padding: const EdgeInsets.all(4), decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle), child: const Icon(CupertinoIcons.xmark, color: Colors.white, size: 14))))]))),
+        ..._shots.map((path) => Padding(padding: const EdgeInsetsDirectional.only(end: 8), child: Stack(children: [ClipRRect(borderRadius: BorderRadius.circular(14), child: Image.file(File(path), width: 84, height: 145, fit: BoxFit.cover)), Positioned(top: 5, right: 5, child: InkWell(onTap: () => setState(() => _shots.remove(path)), child: Container(padding: const EdgeInsets.all(4), decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle), child: const Icon(CupertinoIcons.xmark, color: Colors.white, size: 14))))]))),
+      ]))],
       if (_error != null) ...[const SizedBox(height: 14), Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.red.withValues(alpha: .1), borderRadius: BorderRadius.circular(14)), child: Text(_error!, style: const TextStyle(color: Colors.red)))],
       const SizedBox(height: 18),
       FilledButton.icon(onPressed: _busy ? null : _save, icon: const Icon(CupertinoIcons.cloud_upload_fill), label: Text(widget.app == null ? 'رفع وإضافة التطبيق' : 'حفظ التعديلات'), style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)))),

@@ -13,6 +13,7 @@ class AppStore extends ChangeNotifier {
   static const _themeKey = 'sign.theme';
   static const _accentKey = 'sign.accent';
   static const _signDraftKey = 'sign.currentDraft.v1';
+  static const _autoSignKey = 'sign.autoSignAfterDownload.v1';
 
   SharedPreferences? _prefs;
   final List<ImportedFile> files = [];
@@ -22,12 +23,14 @@ class AppStore extends ChangeNotifier {
   String theme = 'dark';
   int accent = 0;
   Map<String, dynamic>? signDraft;
+  bool autoSignAfterDownload = false;
 
   Future<void> initialize() async {
     _prefs = await SharedPreferences.getInstance();
     languageCode = _prefs?.getString(_languageKey) ?? 'ar';
     theme = _prefs?.getString(_themeKey) ?? 'dark';
     accent = _prefs?.getInt(_accentKey) ?? 0;
+    autoSignAfterDownload = _prefs?.getBool(_autoSignKey) ?? false;
     try {
       final raw = _prefs!.getString(_filesKey) ?? _prefs!.getString('sign.files.v2');
       if (raw != null) {
@@ -62,6 +65,12 @@ class AppStore extends ChangeNotifier {
   Future<void> setAccent(int value) async {
     accent = value;
     await _prefs?.setInt(_accentKey, value);
+    notifyListeners();
+  }
+
+  Future<void> setAutoSignAfterDownload(bool value) async {
+    autoSignAfterDownload = value;
+    await _prefs?.setBool(_autoSignKey, value);
     notifyListeners();
   }
 

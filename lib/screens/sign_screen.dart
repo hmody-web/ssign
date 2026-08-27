@@ -12,6 +12,7 @@ import '../services/signing_service.dart';
 import '../services/localized.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
+import 'signed_files_screen.dart';
 
 class SignScreen extends StatefulWidget {
   final ImportedFile? preparedFile;
@@ -371,66 +372,23 @@ class _SignScreenState extends State<SignScreen> {
       await store.addSignedOutput(model);
       if (!mounted) return;
       setState(() => progress = 1);
-      await showModalBottomSheet<void>(
-        context: context,
-        backgroundColor: Colors.transparent,
-        isScrollControlled: true,
-        builder: (ctx) => SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-            child: GlassCard(
-              radius: 30,
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 54,
-                        height: 54,
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primary.withValues(alpha: .14),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Icon(CupertinoIcons.checkmark_shield_fill, color: Theme.of(context).colorScheme.primary, size: 28),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(tr('تم التوقيع بنجاح', 'Signed successfully'), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20)),
-                          const SizedBox(height: 3),
-                          Text(appName, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .55))),
-                        ]),
-                      ),
-                      IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(CupertinoIcons.xmark_circle_fill)),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  FilledButton.icon(
-                    onPressed: () async {
-                      Navigator.pop(ctx);
-                      final ok = await signing.install(out);
-                      if (mounted && !ok) {
-                        showAppNotice(context, tr('تعذر فتح مثبت iOS.', 'iOS did not open the installer.'), type: AppNoticeType.error);
-                      }
-                    },
-                    icon: const Icon(CupertinoIcons.arrow_down_circle),
-                    label: Text(tr('تثبيت', 'Install')),
-                  ),
-                  const SizedBox(height: 10),
-                  FilledButton.tonalIcon(
-                    onPressed: () async { Navigator.pop(ctx); await signing.share(out); },
-                    icon: const Icon(CupertinoIcons.share),
-                    label: Text(tr('مشاركة', 'Share')),
-                  ),
-                ],
-              ),
+      showAppNotice(
+        context,
+        '${tr('تم توقيع', 'Signed')} $appName',
+        type: AppNoticeType.success,
+        imagePath: model.iconPath,
+        duration: const Duration(seconds: 4),
+        onTap: () {
+          Navigator.of(context).push(CupertinoPageRoute(
+            builder: (_) => SignedFilesScreen(
+              highlightFileId: model.id,
+              onSignRequested: (file) {
+                Navigator.of(context).pop();
+                _loadImportedFile(file);
+              },
             ),
-          ),
-        ),
+          ));
+        },
       );
       if (mounted) {
         await _clearSelectedApp();

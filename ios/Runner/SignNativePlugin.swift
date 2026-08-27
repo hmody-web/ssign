@@ -335,10 +335,53 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
       format.scale = scale
       format.opaque = false
       let renderer = UIGraphicsImageRenderer(size: size, format: format)
-      let rendered = renderer.image { _ in source.draw(in: CGRect(origin: .zero, size: size)) }
+      let rendered = renderer.image { _ in
+        source.draw(in: CGRect(origin: .zero, size: size))
+      }
       guard let data = rendered.pngData() else { continue }
       try data.write(to: target, options: .atomic)
     }
+
+    // Always create a fresh explicit icon set and point Info.plist to it. Some
+    // IPAs keep CFBundleIconName/asset-catalog metadata that makes iOS continue
+    // using the old icon even after the loose PNG files were replaced.
+    func writeIcon(_ filename: String, pixels: CGFloat) throws {
+      let format = UIGraphicsImageRendererFormat.default()
+      format.scale = 1
+      format.opaque = true
+      let canvas = CGSize(width: pixels, height: pixels)
+      let renderer = UIGraphicsImageRenderer(size: canvas, format: format)
+      let rendered = renderer.image { _ in
+        source.draw(in: CGRect(origin: .zero, size: canvas))
+      }
+      guard let data = rendered.pngData() else { return }
+      try data.write(to: app.appendingPathComponent(filename), options: .atomic)
+    }
+
+    try writeIcon("BoomaCustomIcon60@2x.png", pixels: 120)
+    try writeIcon("BoomaCustomIcon60@3x.png", pixels: 180)
+    try writeIcon("BoomaCustomIcon76@2x.png", pixels: 152)
+    try writeIcon("BoomaCustomIcon83.5@2x.png", pixels: 167)
+
+    var updated = info
+    var phoneIcons = (updated["CFBundleIcons"] as? [String: Any]) ?? [:]
+    var phonePrimary = (phoneIcons["CFBundlePrimaryIcon"] as? [String: Any]) ?? [:]
+    phonePrimary.removeValue(forKey: "CFBundleIconName")
+    phonePrimary["CFBundleIconFiles"] = ["BoomaCustomIcon60"]
+    phoneIcons["CFBundlePrimaryIcon"] = phonePrimary
+    updated["CFBundleIcons"] = phoneIcons
+    updated["CFBundleIconFiles"] = ["BoomaCustomIcon60"]
+    updated["CFBundleIconFile"] = "BoomaCustomIcon60"
+
+    var padIcons = (updated["CFBundleIcons~ipad"] as? [String: Any]) ?? [:]
+    var padPrimary = (padIcons["CFBundlePrimaryIcon"] as? [String: Any]) ?? [:]
+    padPrimary.removeValue(forKey: "CFBundleIconName")
+    padPrimary["CFBundleIconFiles"] = ["BoomaCustomIcon76", "BoomaCustomIcon83.5"]
+    padIcons["CFBundlePrimaryIcon"] = padPrimary
+    updated["CFBundleIcons~ipad"] = padIcons
+
+    let plistOut = try PropertyListSerialization.data(fromPropertyList: updated, format: .binary, options: 0)
+    try plistOut.write(to: plistURL, options: .atomic)
   }
 
   private func readInfoPlist(app: URL) throws -> [String: Any] {

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ui';
+import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +13,9 @@ void showAppNotice(
   BuildContext context,
   String message, {
   AppNoticeType type = AppNoticeType.info,
+  String? imagePath,
+  VoidCallback? onTap,
+  Duration duration = const Duration(milliseconds: 2600),
 }) {
   _activeNotice?.remove();
   _activeNotice = null;
@@ -22,6 +26,9 @@ void showAppNotice(
     builder: (_) => _AppNoticeOverlay(
       message: message,
       type: type,
+      imagePath: imagePath,
+      onTap: onTap,
+      duration: duration,
       onDismiss: () {
         if (_activeNotice == entry) {
           _activeNotice = null;
@@ -38,11 +45,17 @@ class _AppNoticeOverlay extends StatefulWidget {
   final String message;
   final AppNoticeType type;
   final VoidCallback onDismiss;
+  final String? imagePath;
+  final VoidCallback? onTap;
+  final Duration duration;
 
   const _AppNoticeOverlay({
     required this.message,
     required this.type,
     required this.onDismiss,
+    this.imagePath,
+    this.onTap,
+    required this.duration,
   });
 
   @override
@@ -71,7 +84,7 @@ class _AppNoticeOverlayState extends State<_AppNoticeOverlay>
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
 
     _controller.forward();
-    _timer = Timer(const Duration(milliseconds: 1780), _dismiss);
+    _timer = Timer(widget.duration, _dismiss);
   }
 
   Future<void> _dismiss() async {
@@ -133,7 +146,9 @@ class _AppNoticeOverlayState extends State<_AppNoticeOverlay>
             opacity: _fade,
             child: SlideTransition(
               position: _slide,
-              child: Material(
+              child: GestureDetector(
+                onTap: widget.onTap == null ? null : () { _timer?.cancel(); widget.onTap!(); _dismiss(); },
+                child: Material(
                 color: Colors.transparent,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(18),
@@ -162,16 +177,16 @@ class _AppNoticeOverlayState extends State<_AppNoticeOverlay>
                         mainAxisSize: MainAxisSize.min,
                         textDirection: TextDirection.rtl,
                         children: [
-                          Container(
-                            width: 32,
-                            height: 32,
-                            decoration: BoxDecoration(
-                              color: accent.withValues(alpha: .13),
-                              shape: BoxShape.circle,
+                          if (widget.imagePath != null && widget.imagePath!.isNotEmpty && File(widget.imagePath!).existsSync())
+                            ClipRRect(borderRadius: BorderRadius.circular(9), child: Image.file(File(widget.imagePath!), width: 34, height: 34, fit: BoxFit.cover))
+                          else
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(color: accent.withValues(alpha: .13), shape: BoxShape.circle),
+                              alignment: Alignment.center,
+                              child: Icon(_icon, size: 19, color: accent),
                             ),
-                            alignment: Alignment.center,
-                            child: Icon(_icon, size: 19, color: accent),
-                          ),
                           const SizedBox(width: 10),
                           Flexible(
                             child: Text(
@@ -192,6 +207,7 @@ class _AppNoticeOverlayState extends State<_AppNoticeOverlay>
                     ),
                   ),
                 ),
+              ),
               ),
             ),
           ),

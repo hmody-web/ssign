@@ -135,6 +135,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ],
                 ),
               ),
+              const SizedBox(height: 14),
+              GlassCard(
+                padding: EdgeInsets.zero,
+                child: SwitchListTile.adaptive(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  secondary: _tileIcon(context, CupertinoIcons.bolt_fill),
+                  title: Text(tr('التوقيع التلقائي بعد التنزيل', 'Auto-sign after download'), style: const TextStyle(fontWeight: FontWeight.w900)),
+                  subtitle: Text(tr('ينزّل التطبيق ثم يوقّعه ويبدأ التثبيت تلقائياً بالخلفية', 'Download, sign, then start installation automatically in the background')),
+                  value: store.autoSignAfterDownload,
+                  onChanged: (value) async {
+                    if (value && store.identities.isEmpty) {
+                      showAppNotice(context, tr('أضف شهادة توقيع أولاً لتفعيل التوقيع التلقائي.', 'Add a signing certificate first to enable auto-signing.'), type: AppNoticeType.warning);
+                      return;
+                    }
+                    await store.setAutoSignAfterDownload(value);
+                    if (context.mounted) {
+                      showAppNotice(context, value ? tr('تم تفعيل التوقيع التلقائي', 'Auto-sign enabled') : tr('تم إيقاف التوقيع التلقائي', 'Auto-sign disabled'), type: AppNoticeType.success);
+                    }
+                  },
+                ),
+              ),
+
               FutureBuilder<bool>(
                 future: _adminVisibility,
                 builder: (context, snapshot) {

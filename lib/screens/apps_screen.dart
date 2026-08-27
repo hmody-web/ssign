@@ -981,6 +981,18 @@ class _DownloadAction extends StatelessWidget {
       );
     }
 
+    if (state.stage == 'signing' || state.stage == 'installing') {
+      return FilledButton(
+        onPressed: null,
+        style: FilledButton.styleFrom(minimumSize: const Size(104, 36), padding: const EdgeInsets.symmetric(horizontal: 14), shape: const StadiumBorder()),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(width: 7),
+          Text(state.stage == 'signing' ? tr('جاري التوقيع', 'Signing') : tr('جاري التثبيت', 'Installing'), style: const TextStyle(fontWeight: FontWeight.w800)),
+        ]),
+      );
+    }
+
     if (state.file != null) {
       return FilledButton(
         onPressed: onSign,

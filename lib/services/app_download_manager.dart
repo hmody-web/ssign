@@ -12,6 +12,7 @@ class AppDownloadSnapshot {
   final double? progress;
   final ImportedFile? file;
   final Object? error;
+  final String stage;
 
   const AppDownloadSnapshot({
     this.downloading = false,
@@ -19,6 +20,7 @@ class AppDownloadSnapshot {
     this.progress,
     this.file,
     this.error,
+    this.stage = '',
   });
 }
 
@@ -110,6 +112,49 @@ class AppDownloadManager extends ChangeNotifier {
       } catch (_) {}
 
       await _store.addFiles([file]);
+
+      if (_store.autoSignAfterDownload) {
+        if (_store.identities.isEmpty) {
+          _states[app.id] = AppDownloadSnapshot(file: file, error: StateError('No signing identity configured'));
+          notifyListeners();
+          return file;
+        }
+        final identity = _store.identities.first;
+        _states[app.id] = AppDownloadSnapshot(file: file, stage: 'signing');
+        notifyListeners();
+        final password = await _signer.loadPassword(identity.id);
+        final signedPath = await _signer.sign(
+          ipaPath: file.path,
+          p12Path: identity.p12Path,
+          p12Password: password,
+          provisionPath: identity.provisionPath,
+          options: SignOptions(
+            bundleId: file.bundleId ?? '',
+            displayName: file.name,
+            version: file.version ?? '',
+            build: '',
+            removeSupportedDevices: false,
+            iconPath: '',
+          ),
+        );
+        final signedInfo = await _signer.inspectIpa(signedPath);
+        final signedFile = ImportedFile(
+          id: '${DateTime.now().microsecondsSinceEpoch}',
+          name: (signedInfo['displayName'] ?? file.name).toString(),
+          path: signedPath,
+          kind: 'Signed IPA',
+          size: await File(signedPath).length(),
+          importedAt: DateTime.now(),
+          bundleId: (signedInfo['bundleId'] ?? file.bundleId ?? '').toString(),
+          version: (signedInfo['version'] ?? file.version ?? '').toString(),
+          iconPath: (signedInfo['iconPath'] ?? file.iconPath ?? '').toString(),
+        );
+        await _store.addSignedOutput(signedFile);
+        _states[app.id] = AppDownloadSnapshot(file: file, stage: 'installing');
+        notifyListeners();
+        await _signer.install(signedPath);
+      }
+
       _states[app.id] = AppDownloadSnapshot(file: file);
       notifyListeners();
       return file;

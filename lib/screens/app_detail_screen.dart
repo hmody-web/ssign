@@ -258,6 +258,16 @@ class _Header extends StatelessWidget {
                 const SizedBox(height: 14),
                 if (state.downloading)
                   _ProgressPauseButton(state: state, onTap: onTogglePause)
+                else if (state.stage == 'signing' || state.stage == 'installing')
+                  FilledButton(
+                    onPressed: null,
+                    style: FilledButton.styleFrom(minimumSize: const Size(120, 38), padding: const EdgeInsets.symmetric(horizontal: 18), shape: const StadiumBorder()),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                      const SizedBox(width: 7),
+                      Text(state.stage == 'signing' ? tr('جاري التوقيع', 'Signing') : tr('جاري التثبيت', 'Installing'), style: const TextStyle(fontWeight: FontWeight.w800)),
+                    ]),
+                  )
                 else if (state.file != null)
                   FilledButton(
                     onPressed: onSign,

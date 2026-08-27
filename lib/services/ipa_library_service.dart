@@ -214,6 +214,18 @@ class IpaLibraryService {
         .toList();
   }
 
+
+  Future<List<String>> fetchBoomaCategories({int sampleSize = 240}) async {
+    final apps = await _fetchIosBoomApps(offset: 0, limit: sampleSize, search: '');
+    final categories = apps
+        .map((app) => app.category.trim())
+        .where((category) => category.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return categories;
+  }
+
   Future<Uri> resolveDownload(RemoteApp app) async {
     final direct = app.downloadUrl?.trim() ?? '';
     if (direct.isNotEmpty) {
