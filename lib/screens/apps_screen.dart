@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/remote_app.dart';
 import '../models/sign_models.dart';
 import '../services/app_download_manager.dart';
+import '../services/admin_service.dart';
 import '../services/app_store.dart';
 import '../services/ipa_library_service.dart';
 import '../services/localized.dart';
@@ -127,6 +128,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    AdminService.instance.deletedAppId.addListener(_onAdminDeletedApp);
     _restoreThenLoad();
     _syncTimer = Timer.periodic(_syncEvery, (_) => _syncIncrementally());
   }
@@ -134,11 +136,27 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   @override
   void dispose() {
     _syncTimer?.cancel();
+    AdminService.instance.deletedAppId.removeListener(_onAdminDeletedApp);
     _searchDebounce?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
     _service.close();
     super.dispose();
+  }
+
+  void _onAdminDeletedApp() {
+    final rawId = AdminService.instance.deletedAppId.value;
+    if (rawId == null || rawId.isEmpty) return;
+    final appId = rawId.startsWith('alsaray:') ? rawId : 'alsaray:$rawId';
+    final before = _apps.length;
+    _apps.removeWhere((app) => app.id == appId);
+    _searchResults?.removeWhere((app) => app.id == appId);
+    if (_apps.length != before && mounted) {
+      setState(() {});
+      _saveCache();
+    }
+    // Reconcile with the server as well, but the visual removal above is instant.
+    _syncIncrementally();
   }
 
   Future<void> _restoreThenLoad() async {
@@ -167,7 +185,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     if (_apps.isEmpty) {
       await _loadInitial();
     } else if (_lastSync == null || DateTime.now().difference(_lastSync!) >= _syncEvery) {
-      unawaited(_syncIncrementally());
+      _syncIncrementally();
     }
   }
 
@@ -235,6 +253,11 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
         _apps.insertAll(0, newItems);
         changed = true;
       }
+
+      final freshIds = fresh.map((e) => e.id).toSet();
+      final beforeRemoval = _apps.length;
+      _apps.removeWhere((app) => app.id.startsWith('alsaray:') && !freshIds.contains(app.id));
+      if (_apps.length != beforeRemoval) changed = true;
 
       if (changed) setState(() {});
       _hasMore = fresh.length >= limit;

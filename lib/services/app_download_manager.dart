@@ -36,7 +36,7 @@ class AppDownloadManager extends ChangeNotifier {
   final Map<String, RemoteApp> _apps = {};
 
   List<MapEntry<RemoteApp, AppDownloadSnapshot>> get activeDownloads => _states.entries
-      .where((e) => e.value.downloading && _apps.containsKey(e.key))
+      .where((e) => (e.value.downloading || e.value.stage == 'signing' || e.value.stage == 'installing') && _apps.containsKey(e.key))
       .map((e) => MapEntry(_apps[e.key]!, e.value))
       .toList();
 

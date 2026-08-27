@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AdminApp {
@@ -78,6 +79,7 @@ class AdminService {
 
   final HttpClient _http = HttpClient()..connectionTimeout = const Duration(seconds: 35);
   String? _accessToken;
+  final ValueNotifier<String?> deletedAppId = ValueNotifier<String?>(null);
 
   Future<String?> get deviceId async => (await SharedPreferences.getInstance()).getString(_deviceIdKey);
   bool get hasSession => _accessToken?.isNotEmpty == true;
@@ -205,6 +207,27 @@ class AdminService {
 
   Future<void> deleteApp(String id) async {
     await _json('delete', method: 'POST', body: {'id': id}, auth: true);
+
+    // Remove it from the persisted merged-library cache too. This covers the
+    // case where AppsScreen is not mounted when the admin deletes the app.
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      const cacheKey = 'ipa.library.cache.v3.merged';
+      final raw = prefs.getString(cacheKey);
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          final target = id.startsWith('alsaray:') ? id : 'alsaray:$id';
+          decoded.removeWhere((item) => item is Map && '${item['id'] ?? ''}' == target);
+          await prefs.setString(cacheKey, jsonEncode(decoded));
+        }
+      }
+    } catch (_) {}
+
+    // Notify the already-mounted Apps screen immediately so the deleted card
+    // disappears without waiting for the next scheduled network sync.
+    deletedAppId.value = null;
+    deletedAppId.value = id;
   }
 
   void lock() => _accessToken = null;

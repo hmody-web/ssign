@@ -551,8 +551,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       Expanded(
                         child: FilledButton.tonalIcon(
                           onPressed: () => setState(() {
-                            if (selected.length == store.importedFiles.length) selected.clear();
-                            else selected.addAll(store.importedFiles.map((e) => e.id));
+                            if (selected.length == store.importedFiles.length) {
+                              selected.clear();
+                            } else {
+                              selected.addAll(store.importedFiles.map((e) => e.id));
+                            }
                           }),
                           icon: Icon(selected.length == store.importedFiles.length ? CupertinoIcons.clear_circled : CupertinoIcons.checkmark_alt_circle),
                           label: Text(selected.length == store.importedFiles.length ? tr('إلغاء تحديد الكل', 'Clear all') : tr('تحديد الكل', 'Select all')),
@@ -761,81 +764,112 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget _downloadingAppCard(BuildContext context, RemoteApp app, AppDownloadSnapshot snap) {
     final progress = snap.progress;
     final percent = progress == null ? null : (progress * 100).clamp(0, 100).round();
-    final subtitle = <String>[
-      'IPA',
-      if (app.version.trim().isNotEmpty) '${tr('الإصدار', 'v')} ${app.version.trim()}',
-      if (app.size > 0) _size(app.size),
-    ].join(' • ');
+    final processing = snap.stage == 'signing' || snap.stage == 'installing';
+    final statusText = snap.stage == 'signing'
+        ? tr('جاري التوقيع', 'Signing')
+        : snap.stage == 'installing'
+            ? tr('جاري التثبيت', 'Installing')
+            : null;
+    final subtitle = processing
+        ? statusText!
+        : <String>[
+            'IPA',
+            if (app.version.trim().isNotEmpty) '${tr('الإصدار', 'v')} ${app.version.trim()}',
+            if (app.size > 0) _size(app.size),
+          ].join(' • ');
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onLongPress: () => _showDownloadActions(app, snap),
+      onLongPress: snap.downloading ? () => _showDownloadActions(app, snap) : null,
       child: GlassCard(
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: SizedBox(
-              width: 52,
-              height: 52,
-              child: app.iconUrl.trim().isEmpty
-                  ? _downloadIconFallback(context)
-                  : Image.network(
-                      app.iconUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _downloadIconFallback(context),
-                      loadingBuilder: (context, child, loadingProgress) =>
-                          loadingProgress == null ? child : _downloadIconFallback(context),
-                    ),
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: SizedBox(
+                width: 52,
+                height: 52,
+                child: app.iconUrl.trim().isEmpty
+                    ? _downloadIconFallback(context)
+                    : Image.network(
+                        app.iconUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _downloadIconFallback(context),
+                        loadingBuilder: (context, child, loadingProgress) =>
+                            loadingProgress == null ? child : _downloadIconFallback(context),
+                      ),
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  app.displayName(store.isArabic),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48), fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 42,
-            height: 42,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                CircularProgressIndicator(
-                  value: progress,
-                  strokeWidth: 3.4,
-                  strokeCap: StrokeCap.round,
-                  backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: .12),
-                ),
-                if (percent != null)
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    '$percent%',
-                    style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800),
-                  )
-                else
-                  Icon(CupertinoIcons.arrow_down, size: 17, color: Theme.of(context).colorScheme.primary),
-              ],
+                    app.displayName(store.isArabic),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5),
+                  ),
+                  const SizedBox(height: 3),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    child: Text(
+                      subtitle,
+                      key: ValueKey(subtitle),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: processing ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onSurface.withValues(alpha: .48),
+                        fontSize: 12,
+                        fontWeight: processing ? FontWeight.w800 : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
-      ),
+            const SizedBox(width: 12),
+            if (processing)
+              FilledButton(
+                onPressed: null,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(108, 38),
+                  padding: const EdgeInsets.symmetric(horizontal: 13),
+                  shape: const StadiumBorder(),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                    const SizedBox(width: 7),
+                    Text(statusText ?? '', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                  ],
+                ),
+              )
+            else
+              SizedBox(
+                width: 42,
+                height: 42,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CircularProgressIndicator(
+                      value: progress,
+                      strokeWidth: 3.4,
+                      strokeCap: StrokeCap.round,
+                      backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: .12),
+                    ),
+                    if (percent != null)
+                      Text('$percent%', style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800))
+                    else
+                      Icon(CupertinoIcons.arrow_down, size: 17, color: Theme.of(context).colorScheme.primary),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

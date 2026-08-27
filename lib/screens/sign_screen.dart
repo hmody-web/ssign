@@ -37,6 +37,7 @@ class _SignScreenState extends State<SignScreen> {
   bool busy = false;
   bool removeDevices = false;
   bool multipleCopies = false;
+  bool installAfterSigning = false;
   double progress = 0;
   String? _copySuffix;
   String? _bundleBeforeCopies;
@@ -79,6 +80,7 @@ class _SignScreenState extends State<SignScreen> {
       buildCtrl.text = (draft['build'] ?? '').toString();
       removeDevices = draft['removeDevices'] == true;
       multipleCopies = draft['multipleCopies'] == true;
+      installAfterSigning = draft['installAfterSigning'] == true;
       _copySuffix = draft['copySuffix']?.toString();
       _bundleBeforeCopies = draft['bundleBeforeCopies']?.toString();
       _loadedPreparedPath = path;
@@ -99,6 +101,7 @@ class _SignScreenState extends State<SignScreen> {
       'build': buildCtrl.text,
       'removeDevices': removeDevices,
       'multipleCopies': multipleCopies,
+      'installAfterSigning': installAfterSigning,
       'copySuffix': _copySuffix,
       'bundleBeforeCopies': _bundleBeforeCopies,
     });
@@ -324,6 +327,93 @@ class _SignScreenState extends State<SignScreen> {
     _persistDraft();
   }
 
+  Future<void> _showSignedActions(ImportedFile model) async {
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+            child: GlassCard(
+              radius: 30,
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: model.iconPath != null && model.iconPath!.isNotEmpty && File(model.iconPath!).existsSync()
+                            ? Image.file(File(model.iconPath!), width: 54, height: 54, fit: BoxFit.cover)
+                            : Container(
+                                width: 54,
+                                height: 54,
+                                decoration: BoxDecoration(
+                                  color: Theme.of(ctx).colorScheme.primary.withValues(alpha: .12),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Icon(CupertinoIcons.app_badge, color: Theme.of(ctx).colorScheme.primary),
+                              ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(model.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 3),
+                            Text(tr('تم التوقيع بنجاح', 'Signed successfully'), style: TextStyle(color: Theme.of(ctx).colorScheme.onSurface.withValues(alpha: .5), fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  FilledButton.icon(
+                    onPressed: () async {
+                      final ok = await signing.install(model.path);
+                      if (!ok && mounted) {
+                        showAppNotice(context, tr('تعذر فتح مثبت iOS.', 'iOS did not open the installer.'), type: AppNoticeType.error);
+                      }
+                    },
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(54),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    icon: const Icon(CupertinoIcons.arrow_down_circle_fill),
+                    label: Text(tr('تثبيت', 'Install'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.center,
+                    child: TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(76, 34),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      child: Text(tr('لاحقاً', 'Later'), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _sign() async {
     final id = selectedIdentity;
     if (ipaPath == null || id == null) {
@@ -390,6 +480,13 @@ class _SignScreenState extends State<SignScreen> {
           ));
         },
       );
+      if (installAfterSigning) {
+        final ok = await signing.install(model.path);
+        if (!ok && mounted) {
+          showAppNotice(context, tr('تعذر فتح مثبت iOS.', 'iOS did not open the installer.'), type: AppNoticeType.error);
+        }
+      }
+      await _showSignedActions(model);
       if (mounted) {
         await _clearSelectedApp();
       }
@@ -531,6 +628,21 @@ class _SignScreenState extends State<SignScreen> {
                           ? tr('تمت إضافة .$_copySuffix إلى Bundle ID لإنشاء نسخة مستقلة', 'Added .$_copySuffix to the Bundle ID for a separate copy')
                           : tr('يضيف حروفاً وأرقاماً عشوائية إلى Bundle ID', 'Adds random letters and numbers to the Bundle ID'),
                     ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                GlassCard(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  child: SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: installAfterSigning,
+                    onChanged: busy ? null : (value) {
+                      setState(() => installAfterSigning = value);
+                      _persistDraft();
+                    },
+                    secondary: Icon(CupertinoIcons.arrow_down_circle_fill, color: Theme.of(context).colorScheme.primary),
+                    title: Text(tr('تثبيت بعد التوقيع', 'Install after signing'), style: const TextStyle(fontWeight: FontWeight.w800)),
+                    subtitle: Text(tr('يبدأ تثبيت هذا التطبيق تلقائياً فور اكتمال التوقيع', 'Automatically starts installing this app as soon as signing finishes')),
                   ),
                 ),
                 const SizedBox(height: 14),
