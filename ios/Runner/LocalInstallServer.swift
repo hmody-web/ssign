@@ -9,11 +9,16 @@ final class LocalInstallServer {
   private(set) var port: UInt16 = 0
   private var ipaURL: URL?
   private var running = false
+  private let stateLock = NSLock()
+  private var downloadStarted = false
 
   deinit { stop() }
 
   func start(ipa: URL) throws -> UInt16 {
     stop()
+    stateLock.lock()
+    downloadStarted = false
+    stateLock.unlock()
     ipaURL = ipa
     let fd = socket(AF_INET, SOCK_STREAM, 0)
     guard fd >= 0 else { throw posix("socket") }
@@ -49,6 +54,12 @@ final class LocalInstallServer {
 
   var ipaHTTPURL: String { "http://127.0.0.1:\(port)/app.ipa" }
 
+  var hasStartedDownload: Bool {
+    stateLock.lock()
+    defer { stateLock.unlock() }
+    return downloadStarted
+  }
+
   private func acceptLoop(_ fd: Int32) {
     while running {
       let client = accept(fd, nil, nil)
@@ -71,6 +82,11 @@ final class LocalInstallServer {
       sendHeader(fd, status:"404 Not Found", length:0, contentRange:nil); return
     }
     let headOnly = parts[0] == "HEAD"
+    if !headOnly {
+      stateLock.lock()
+      downloadStarted = true
+      stateLock.unlock()
+    }
     let attrs = try? FileManager.default.attributesOfItem(atPath:file.path)
     let size = (attrs?[.size] as? NSNumber)?.uint64Value ?? 0
     let rangeLine = request.components(separatedBy:"\r\n").first { $0.lowercased().hasPrefix("range:") }
