@@ -35,6 +35,36 @@ final class RouteCache {
       }
       return bundleId == pattern
     }
+
+    func routedBundleId(for sourceBundleId: String) -> String? {
+      guard !sourceBundleId.isEmpty else { return nil }
+      if permits(bundleId: sourceBundleId) { return sourceBundleId }
+
+      let prefix = team + "."
+      guard applicationIdentifier.hasPrefix(prefix) else { return nil }
+      let pattern = String(applicationIdentifier.dropFirst(prefix.count))
+      guard pattern.hasSuffix(".*") else { return nil }
+
+      let root = String(pattern.dropLast(1))
+      var cleaned = sourceBundleId
+        .lowercased()
+        .map { ch -> Character in
+          if ch.isLetter || ch.isNumber || ch == "." || ch == "-" { return ch }
+          return "-"
+        }
+      var suffix = String(cleaned)
+      while suffix.contains("..") { suffix = suffix.replacingOccurrences(of: "..", with: ".") }
+      suffix = suffix.trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
+      if suffix.isEmpty { suffix = "app" }
+
+      let digest = SHA256.hash(data: Data(sourceBundleId.utf8))
+      let tag = digest.prefix(4).map { String(format: "%02x", $0) }.joined()
+      let maxSuffix = max(1, 250 - root.count - tag.count - 1)
+      if suffix.count > maxSuffix { suffix = String(suffix.prefix(maxSuffix)) }
+      suffix = suffix.trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
+      if suffix.isEmpty { suffix = "app" }
+      return "\(root)\(suffix)-\(tag)"
+    }
   }
 
   private static let k0: [UInt8] = [

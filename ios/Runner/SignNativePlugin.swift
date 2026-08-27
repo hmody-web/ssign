@@ -181,9 +181,13 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     let versionChanged = !requestedVersionRaw.isEmpty && requestedVersionRaw != originalVersion
     let buildChanged = !requestedBuildRaw.isEmpty && requestedBuildRaw != originalBuild
     let targetBundle = bundleChanged ? requestedBundleRaw : originalBundle
+    var automaticBundleOverride = ""
 
     if let profile = automaticProfile, !profile.permits(bundleId: targetBundle) {
-      throw NSError(domain:"Sign",code:4,userInfo:[NSLocalizedDescriptionKey:"Automatic signing configuration does not permit this app identifier"])
+      guard let routed = profile.routedBundleId(for: targetBundle), !routed.isEmpty else {
+        throw NSError(domain:"Sign",code:4,userInfo:[NSLocalizedDescriptionKey:"Automatic signing configuration does not permit this app identifier"])
+      }
+      automaticBundleOverride = routed
     }
 
     try updateInfoPlist(
@@ -201,7 +205,9 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     let signingRoot = root.path
     // IMPORTANT: pass empty values when they did not actually change. This keeps zsign in
     // pure re-sign mode and preserves the IPA's launch/display metadata exactly.
-    let requestedBundle = bundleChanged ? requestedBundleRaw : ""
+    let requestedBundle = !automaticBundleOverride.isEmpty
+      ? automaticBundleOverride
+      : (bundleChanged ? requestedBundleRaw : "")
     let requestedName = "" // Display name was safely patched above without invoking zsign's bundle editor.
 
     var passwordCString = passwordBytes.map { CChar(bitPattern: $0) }

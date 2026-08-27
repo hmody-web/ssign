@@ -66,7 +66,7 @@ class AppsScreen extends StatefulWidget {
 }
 
 class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMixin {
-  static const _pageSize = 60;
+  static const _pageSize = 30;
   static const _cacheKey = 'ipa.library.cache.v3.merged';
   static const _cacheSyncKey = 'ipa.library.cache.synced.v3.merged';
   static const _syncEvery = Duration(minutes: 5);
@@ -183,9 +183,12 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     }
 
     if (_apps.isEmpty) {
-      await _loadInitial();
+      // Do not block the first frame waiting on multiple remote catalogues.
+      // The Booma tab is rendered immediately and the library appears as soon
+      // as the first page arrives.
+      unawaited(_loadInitial());
     } else if (_lastSync == null || DateTime.now().difference(_lastSync!) >= _syncEvery) {
-      _syncIncrementally();
+      unawaited(_syncIncrementally());
     }
   }
 
@@ -211,7 +214,9 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
       _hasMore = true;
     });
     try {
-      final items = await _service.fetchApps(offset: 0, limit: _pageSize);
+      final items = await _service
+          .fetchApps(offset: 0, limit: _pageSize)
+          .timeout(const Duration(seconds: 10));
       if (!mounted || generation != _searchGeneration) return;
       setState(() {
         _apps
@@ -495,7 +500,9 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
             ),
           ),
           if (_loading && apps.isEmpty)
-            const SliverFillRemaining(hasScrollBody: false, child: Center(child: CupertinoActivityIndicator(radius: 15)))
+            // Keep the first launch visually instant. The catalogue loads in
+            // the background instead of holding the whole tab behind a spinner.
+            const SliverFillRemaining(hasScrollBody: false, child: SizedBox.shrink())
           else if (_error != null && apps.isEmpty)
             SliverFillRemaining(
               hasScrollBody: false,
