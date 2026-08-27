@@ -43,6 +43,7 @@ class _SignScreenState extends State<SignScreen> {
   String? _bundleBeforeCopies;
   String? _loadedPreparedPath;
   String? _ignoredPreparedPath;
+  bool _automaticReady = false;
 
   final bundle = TextEditingController();
   final name = TextEditingController();
@@ -56,6 +57,7 @@ class _SignScreenState extends State<SignScreen> {
       c.addListener(_persistDraft);
     }
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _refreshAutomaticState();
       if (widget.preparedFile != null) {
         await _loadImportedFile(widget.preparedFile!);
       } else {
@@ -63,6 +65,14 @@ class _SignScreenState extends State<SignScreen> {
       }
     });
   }
+
+  Future<void> _refreshAutomaticState() async {
+    final state = await signing.automaticSigningState();
+    if (!mounted) return;
+    setState(() => _automaticReady = state['ready'] == true);
+  }
+
+  bool get _usingAutomatic => _automaticReady && identityId == null;
 
   Future<void> _restoreDraft() async {
     final draft = store.signDraft;
@@ -131,10 +141,17 @@ class _SignScreenState extends State<SignScreen> {
   }
 
   SigningIdentity? get selectedIdentity {
-    if (store.identities.isEmpty) return null;
-    identityId ??= store.identities.first.id;
-    for (final item in store.identities) {
-      if (item.id == identityId) return item;
+    if (_automaticReady && identityId == null) return null;
+    if (store.identities.isEmpty) {
+      if (_automaticReady) identityId = null;
+      return null;
+    }
+    if (identityId != null) {
+      for (final item in store.identities) {
+        if (item.id == identityId) return item;
+      }
+      identityId = null;
+      if (_automaticReady) return null;
     }
     identityId = store.identities.first.id;
     return store.identities.first;
@@ -257,7 +274,8 @@ class _SignScreenState extends State<SignScreen> {
   }
 
   Future<void> _chooseIdentity() async {
-    if (store.identities.length <= 1) return;
+    final optionCount = store.identities.length + (_automaticReady ? 1 : 0);
+    if (optionCount <= 1) return;
     final chosen = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -270,8 +288,19 @@ class _SignScreenState extends State<SignScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(tr('اختيار شهادة', 'Choose certificate'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+              Text(tr('طريقة التوقيع', 'Signing Method'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
               const SizedBox(height: 12),
+              if (_automaticReady)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    _usingAutomatic ? CupertinoIcons.checkmark_circle_fill : CupertinoIcons.circle,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  title: Text(tr('تلقائي', 'Automatic')),
+                  subtitle: Text(tr('جاهز للاستخدام مباشرة', 'Ready to use')),
+                  onTap: () => Navigator.pop(ctx, '__automatic__'),
+                ),
               ...store.identities.map(
                 (e) => ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -289,7 +318,10 @@ class _SignScreenState extends State<SignScreen> {
         ),
       ),
     );
-    if (chosen != null) { setState(() => identityId = chosen); _persistDraft(); }
+    if (chosen != null) {
+      setState(() => identityId = chosen == '__automatic__' ? null : chosen);
+      _persistDraft();
+    }
   }
 
   String _makeRandomSuffix([int length = 7]) {
@@ -450,11 +482,14 @@ class _SignScreenState extends State<SignScreen> {
   }
 
   Future<void> _sign() async {
+    final automatic = _usingAutomatic;
     final id = selectedIdentity;
-    if (ipaPath == null || id == null) {
+    if (ipaPath == null || (!automatic && id == null)) {
       showAppNotice(
         context,
-        tr('اختر تطبيق IPA وأضف شهادة توقيع أولاً.', 'Choose an IPA and add a signing identity first.'),
+        ipaPath == null
+            ? tr('اختر تطبيق IPA أولاً.', 'Choose an IPA first.')
+            : tr('بيانات التوقيع غير متاحة حالياً.', 'Signing data is not available right now.'),
         type: AppNoticeType.warning,
       );
       return;
@@ -464,21 +499,23 @@ class _SignScreenState extends State<SignScreen> {
       progress = .18;
     });
     try {
-      final storedPassword = await signing.loadPassword(id.id);
-      final out = await signing.sign(
-        ipaPath: ipaPath!,
-        p12Path: id.p12Path,
-        p12Password: storedPassword,
-        provisionPath: id.provisionPath,
-        options: SignOptions(
-          bundleId: bundle.text.trim(),
-          displayName: name.text.trim(),
-          version: version.text.trim(),
-          build: buildCtrl.text.trim(),
-          removeSupportedDevices: removeDevices,
-          iconPath: replacementIconPath ?? '',
-        ),
+      final options = SignOptions(
+        bundleId: bundle.text.trim(),
+        displayName: name.text.trim(),
+        version: version.text.trim(),
+        build: buildCtrl.text.trim(),
+        removeSupportedDevices: removeDevices,
+        iconPath: replacementIconPath ?? '',
       );
+      final out = automatic
+          ? await signing.signAutomatic(ipaPath: ipaPath!, options: options)
+          : await signing.sign(
+              ipaPath: ipaPath!,
+              p12Path: id!.p12Path,
+              p12Password: await signing.loadPassword(id.id),
+              provisionPath: id.provisionPath,
+              options: options,
+            );
       setState(() => progress = .90);
       final info = await signing.inspectIpa(out);
       final file = File(out);
@@ -530,7 +567,11 @@ class _SignScreenState extends State<SignScreen> {
       if (mounted) {
         final raw = e.toString();
         String message;
-        if (raw.contains('P12 certificate file is missing')) {
+        if (raw.contains('Automatic signing data is unavailable') || raw.contains('Runtime configuration')) {
+          message = tr('تعذر تجهيز التوقيع المحلي حالياً.', 'Local signing could not be prepared right now.');
+        } else if (raw.contains('Automatic signing configuration does not permit this app identifier')) {
+          message = tr('إعداد التوقيع الحالي لا يدعم معرّف هذا التطبيق.', 'The current signing setup does not support this app identifier.');
+        } else if (raw.contains('P12 certificate file is missing')) {
           message = tr('ملف شهادة P12 غير موجود. أعد إضافة الشهادة من قسم الشهادات.', 'The P12 certificate file is missing. Re-add the certificate from Certificates.');
         } else if (raw.contains('Provisioning profile file is missing')) {
           message = tr('ملف mobileprovision غير موجود. أعد إضافة الشهادة مع ملف provisioning.', 'The mobileprovision file is missing. Re-add the signing identity with its provisioning profile.');
@@ -577,7 +618,7 @@ class _SignScreenState extends State<SignScreen> {
               Text(tr('توقيع تطبيق', 'Sign App'), key: widget.topKey, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -1)),
               const SizedBox(height: 6),
               Text(
-                tr('اختر التطبيق ثم وقّعه بشهادتك', 'IPA → certificate → signed IPA'),
+                tr('اختر التطبيق ثم ابدأ التوقيع', 'Choose an IPA and start signing'),
                 style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .55)),
               ),
               const SizedBox(height: 20),
@@ -601,14 +642,38 @@ class _SignScreenState extends State<SignScreen> {
                       onClear: ipaPath != null && !busy ? _clearSelectedApp : null,
                     ),
                     const Divider(height: 28),
-                    if (identity == null)
+                    if (_usingAutomatic)
+                      Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primary.withValues(alpha: .14),
+                              borderRadius: BorderRadius.circular(13),
+                            ),
+                            child: Icon(CupertinoIcons.checkmark_shield_fill, color: Theme.of(context).colorScheme.primary),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(tr('جاهز للتوقيع', 'Ready to sign'), style: const TextStyle(fontWeight: FontWeight.w800)),
+                                Text(tr('يتم تجهيز المتطلبات تلقائياً', 'Requirements are prepared automatically'), style: TextStyle(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5))),
+                              ],
+                            ),
+                          ),
+                          if (store.identities.isNotEmpty)
+                            TextButton(onPressed: _chooseIdentity, child: Text(tr('خيارات', 'Options'))),
+                        ],
+                      )
+                    else if (identity == null)
                       Row(
                         children: [
                           const Icon(CupertinoIcons.exclamationmark_triangle),
                           const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(tr('لا توجد شهادة. أضف شهادة من قسم الشهادات أولاً.', 'No certificate found. Add one from Certificates first.')),
-                          ),
+                          Expanded(child: Text(tr('بيانات التوقيع غير متاحة حالياً.', 'Signing data is not available right now.'))),
                         ],
                       )
                     else
@@ -628,15 +693,12 @@ class _SignScreenState extends State<SignScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  tr('الشهادة المختارة', 'Selected certificate'),
-                                  style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5)),
-                                ),
+                                Text(tr('الشهادة المختارة', 'Selected certificate'), style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5))),
                                 Text(identity.name, style: const TextStyle(fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
                               ],
                             ),
                           ),
-                          if (store.identities.length > 1)
+                          if (store.identities.length + (_automaticReady ? 1 : 0) > 1)
                             TextButton(onPressed: _chooseIdentity, child: Text(tr('تغيير', 'Change'))),
                         ],
                       ),

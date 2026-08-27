@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/app_store.dart';
 import '../services/admin_service.dart';
 import '../services/localized.dart';
+import '../services/signing_service.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 import 'certificates_screen.dart';
@@ -145,9 +146,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: Text(tr('ينزّل التطبيق ثم يوقّعه ويبدأ التثبيت تلقائياً بالخلفية', 'Download, sign, then start installation automatically in the background')),
                   value: store.autoSignAfterDownload,
                   onChanged: (value) async {
-                    if (value && store.identities.isEmpty) {
-                      showAppNotice(context, tr('أضف شهادة توقيع أولاً لتفعيل التوقيع التلقائي.', 'Add a signing certificate first to enable auto-signing.'), type: AppNoticeType.warning);
-                      return;
+                    if (value) {
+                      final runtime = await SigningService().automaticSigningState();
+                      if (runtime['ready'] != true && store.identities.isEmpty) {
+                        if (context.mounted) showAppNotice(context, tr('بيانات التوقيع غير متاحة حالياً.', 'Signing data is not available right now.'), type: AppNoticeType.warning);
+                        return;
+                      }
                     }
                     await store.setAutoSignAfterDownload(value);
                     if (context.mounted) {

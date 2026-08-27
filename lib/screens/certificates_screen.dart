@@ -21,6 +21,13 @@ class _CertificatesScreenState extends State<CertificatesScreen> {
   final store = AppStore.instance;
   final importer = FileImportService();
   final signing = SigningService();
+  late Future<Map<String, dynamic>> _automaticState;
+
+  @override
+  void initState() {
+    super.initState();
+    _automaticState = signing.automaticSigningState();
+  }
 
   DateTime? _profileExpiry(String path) {
     try {
@@ -131,69 +138,123 @@ class _CertificatesScreenState extends State<CertificatesScreen> {
   }
 
 
+  DateTime? _automaticExpiry(Map<String, dynamic> state) {
+    final raw = (state['expiresAt'] ?? '').toString();
+    return raw.isEmpty ? null : DateTime.tryParse(raw)?.toLocal();
+  }
+
+  Widget _automaticCard(BuildContext context, Map<String, dynamic> state) {
+    final expiry = _automaticExpiry(state);
+    final valid = state['ready'] == true && (expiry == null || expiry.isAfter(DateTime.now()));
+    final statusColor = valid ? Colors.green : Theme.of(context).colorScheme.error;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GlassCard(
+        padding: const EdgeInsets.all(14),
+        child: Row(children: [
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(color: statusColor.withValues(alpha: .13), borderRadius: BorderRadius.circular(14)),
+            child: Icon(valid ? CupertinoIcons.checkmark_shield_fill : CupertinoIcons.xmark_shield_fill, color: statusColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Booma', style: const TextStyle(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 3),
+              Row(children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: statusColor.withValues(alpha: .12), borderRadius: BorderRadius.circular(20)),
+                  child: Text(valid ? tr('صالحة', 'Valid') : tr('غير متاحة', 'Unavailable'), style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.w800)),
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    expiry == null ? tr('جاهزة للاستخدام', 'Ready to use') : '${tr('تنتهي', 'Expires')} ${_date(expiry)}',
+                    style: TextStyle(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5)),
+                  ),
+                ),
+              ]),
+            ]),
+          ),
+          const SizedBox(width: 44),
+        ]),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
         animation: store,
-        builder: (context, _) => ListView(
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 110),
-          children: [
-            Row(children: [
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(tr('الشهادات', 'Certificates'), style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -1)),
-                const SizedBox(height: 5),
-                Text(tr('P12 + ملفات provisioning', 'P12 + provisioning identities'), style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .55))),
-              ])),
-              IconButton.filledTonal(onPressed: _add, icon: const Icon(CupertinoIcons.add)),
-            ]),
-            const SizedBox(height: 22),
-            if (store.identities.isEmpty)
-              GlassCard(child: Column(children: [
-                const Icon(CupertinoIcons.lock_shield, size: 42),
-                const SizedBox(height: 10),
-                Text(tr('لا توجد شهادات', 'No signing identities'), style: const TextStyle(fontWeight: FontWeight.w700)),
-                const SizedBox(height: 6),
-                Text(tr('أضف شهادة P12 مع ملف mobileprovision الخاص بها.', 'Add a P12 certificate and its mobileprovision profile.'), textAlign: TextAlign.center, style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .55))),
-                const SizedBox(height: 14),
-                FilledButton(onPressed: _add, child: Text(tr('إضافة شهادة', 'Add Certificate'))),
-              ]))
-            else
-              ...store.identities.map((id) {
-                final expiry = id.expiresAt ?? _profileExpiry(id.provisionPath);
-                final valid = expiry == null ? true : expiry.isAfter(DateTime.now());
-                final statusColor = valid ? Colors.green : Theme.of(context).colorScheme.error;
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: GlassCard(
-                    padding: const EdgeInsets.all(14),
-                    child: Row(children: [
-                      Container(
-                        width: 50,
-                        height: 50,
-                        decoration: BoxDecoration(color: statusColor.withValues(alpha: .13), borderRadius: BorderRadius.circular(14)),
-                        child: Icon(valid ? CupertinoIcons.checkmark_shield_fill : CupertinoIcons.xmark_shield_fill, color: statusColor),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(id.name, style: const TextStyle(fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 3),
-                        Row(children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(color: statusColor.withValues(alpha: .12), borderRadius: BorderRadius.circular(20)),
-                            child: Text(valid ? tr('صالحة', 'Valid') : tr('منتهية', 'Expired'), style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.w800)),
-                          ),
-                          const SizedBox(width: 7),
-                          Expanded(child: Text(expiry == null ? tr('تاريخ الانتهاء غير متاح', 'Expiry date unavailable') : '${tr('تنتهي', 'Expires')} ${_date(expiry)}', style: TextStyle(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5)))),
-                        ]),
-                        const SizedBox(height: 3),
-                        Text('${p.basename(id.p12Path)} • ${p.basename(id.provisionPath)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .38))),
-                      ])),
-                      IconButton(onPressed: () => _deleteIdentity(id), icon: const Icon(CupertinoIcons.trash, size: 19)),
-                    ]),
-                  ),
-                );
-              }),
-          ],
+        builder: (context, _) => FutureBuilder<Map<String, dynamic>>(
+          future: _automaticState,
+          builder: (context, snapshot) {
+            final runtime = snapshot.data ?? const <String, dynamic>{};
+            final hasAutomatic = runtime['ready'] == true;
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 110),
+              children: [
+                Row(children: [
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(tr('الشهادات', 'Certificates'), style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -1)),
+                    const SizedBox(height: 5),
+                    Text(tr('P12 + ملفات provisioning', 'P12 + provisioning identities'), style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .55))),
+                  ])),
+                  IconButton.filledTonal(onPressed: _add, icon: const Icon(CupertinoIcons.add)),
+                ]),
+                const SizedBox(height: 22),
+                if (hasAutomatic) _automaticCard(context, runtime),
+                if (!hasAutomatic && store.identities.isEmpty)
+                  GlassCard(child: Column(children: [
+                    const Icon(CupertinoIcons.lock_shield, size: 42),
+                    const SizedBox(height: 10),
+                    Text(tr('لا توجد شهادات', 'No signing identities'), style: const TextStyle(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    Text(tr('أضف شهادة P12 مع ملف mobileprovision الخاص بها.', 'Add a P12 certificate and its mobileprovision profile.'), textAlign: TextAlign.center, style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .55))),
+                    const SizedBox(height: 14),
+                    FilledButton(onPressed: _add, child: Text(tr('إضافة شهادة', 'Add Certificate'))),
+                  ])),
+                ...store.identities.map((id) {
+                  final expiry = id.expiresAt ?? _profileExpiry(id.provisionPath);
+                  final valid = expiry == null ? true : expiry.isAfter(DateTime.now());
+                  final statusColor = valid ? Colors.green : Theme.of(context).colorScheme.error;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: GlassCard(
+                      padding: const EdgeInsets.all(14),
+                      child: Row(children: [
+                        Container(
+                          width: 50,
+                          height: 50,
+                          decoration: BoxDecoration(color: statusColor.withValues(alpha: .13), borderRadius: BorderRadius.circular(14)),
+                          child: Icon(valid ? CupertinoIcons.checkmark_shield_fill : CupertinoIcons.xmark_shield_fill, color: statusColor),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(id.name, style: const TextStyle(fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 3),
+                          Row(children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(color: statusColor.withValues(alpha: .12), borderRadius: BorderRadius.circular(20)),
+                              child: Text(valid ? tr('صالحة', 'Valid') : tr('منتهية', 'Expired'), style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.w800)),
+                            ),
+                            const SizedBox(width: 7),
+                            Expanded(child: Text(expiry == null ? tr('تاريخ الانتهاء غير متاح', 'Expiry date unavailable') : '${tr('تنتهي', 'Expires')} ${_date(expiry)}', style: TextStyle(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5)))),
+                          ]),
+                          const SizedBox(height: 3),
+                          Text('${p.basename(id.p12Path)} • ${p.basename(id.provisionPath)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .38))),
+                        ])),
+                        IconButton(onPressed: () => _deleteIdentity(id), icon: const Icon(CupertinoIcons.trash, size: 19)),
+                      ]),
+                    ),
+                  );
+                }),
+              ],
+            );
+          },
         ),
       );
 }

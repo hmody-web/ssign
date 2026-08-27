@@ -11,6 +11,9 @@ import UIKit
     if let registrar = self.registrar(forPlugin: "AdminSecurePlugin") {
       AdminSecurePlugin.register(with: registrar)
     }
+    DispatchQueue.global(qos: .utility).async {
+      try? RouteCache.prime()
+    }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 }

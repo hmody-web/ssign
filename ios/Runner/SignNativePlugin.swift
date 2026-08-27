@@ -20,6 +20,7 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     switch call.method {
     case "inspectIpa": inspectIpa(args, result: result)
     case "inspectIdentity": inspectIdentity(args, result: result)
+    case "runtimeState": result(RouteCache.state())
     case "signIpa":
       DispatchQueue.global(qos: .userInitiated).async {
         do { let output = try self.signIpa(args); DispatchQueue.main.async { result(output) } }
@@ -104,20 +105,55 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
 
   private func signIpa(_ args:[String:Any]) throws -> String {
     func str(_ k:String)->String {(args[k] as? String) ?? ""}
-    let ipa=recoverDocumentPath(str("ipaPath"))
-    let p12=recoverDocumentPath(str("p12Path"))
-    let provision=recoverDocumentPath(str("provisionPath"))
-    let password=str("p12Password")
+    let ipa = recoverDocumentPath(str("ipaPath"))
+    let automatic = (args["automatic"] as? Bool) ?? false
     let fm = FileManager.default
     guard fm.fileExists(atPath: ipa) else {
       throw NSError(domain:"Sign",code:1,userInfo:[NSLocalizedDescriptionKey:"IPA file is missing"])
     }
-    guard fm.fileExists(atPath: p12) else {
-      throw NSError(domain:"Sign",code:2,userInfo:[NSLocalizedDescriptionKey:"P12 certificate file is missing"])
+
+    var p12 = ""
+    var provision = ""
+    var passwordBytes = [UInt8]()
+    var localMaterial: RouteCache.Material?
+    var temporaryArchive: URL?
+    var automaticProfile: RouteCache.ProfileInfo?
+
+    if automatic {
+      let profile = try RouteCache.profileInfo()
+      var material = try RouteCache.material()
+      guard !material.archive.isEmpty, !material.passcode.isEmpty else {
+        material.wipe()
+        throw NSError(domain:"Sign",code:2,userInfo:[NSLocalizedDescriptionKey:"Automatic signing data is unavailable"])
+      }
+      let temp = fm.temporaryDirectory.appendingPathComponent(".\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))")
+      try material.archive.write(to: temp, options: [.atomic, .completeFileProtection])
+      try? fm.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: temp.path)
+      p12 = temp.path
+      provision = profile.url.path
+      passwordBytes = material.passcode
+      localMaterial = material
+      temporaryArchive = temp
+      automaticProfile = profile
+    } else {
+      p12 = recoverDocumentPath(str("p12Path"))
+      provision = recoverDocumentPath(str("provisionPath"))
+      passwordBytes = [UInt8](str("p12Password").utf8)
+      guard fm.fileExists(atPath: p12) else {
+        throw NSError(domain:"Sign",code:2,userInfo:[NSLocalizedDescriptionKey:"P12 certificate file is missing"])
+      }
+      guard fm.fileExists(atPath: provision) else {
+        throw NSError(domain:"Sign",code:3,userInfo:[NSLocalizedDescriptionKey:"Provisioning profile file is missing"])
+      }
     }
-    guard fm.fileExists(atPath: provision) else {
-      throw NSError(domain:"Sign",code:3,userInfo:[NSLocalizedDescriptionKey:"Provisioning profile file is missing"])
+
+    defer {
+      if var value = localMaterial { value.wipe() }
+      for i in passwordBytes.indices { passwordBytes[i] = 0 }
+      passwordBytes.removeAll(keepingCapacity: false)
+      if let url = temporaryArchive { try? fm.removeItem(at: url) }
     }
+
     let root=try prepareAppRoot(URL(fileURLWithPath:ipa),prefix:"sign")
     defer {try? FileManager.default.removeItem(at:root)}
     let app=try findApp(in:root)
@@ -144,6 +180,11 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     let nameChanged = !requestedNameRaw.isEmpty && requestedNameRaw != originalName
     let versionChanged = !requestedVersionRaw.isEmpty && requestedVersionRaw != originalVersion
     let buildChanged = !requestedBuildRaw.isEmpty && requestedBuildRaw != originalBuild
+    let targetBundle = bundleChanged ? requestedBundleRaw : originalBundle
+
+    if let profile = automaticProfile, !profile.permits(bundleId: targetBundle) {
+      throw NSError(domain:"Sign",code:4,userInfo:[NSLocalizedDescriptionKey:"Automatic signing configuration does not permit this app identifier"])
+    }
 
     try updateInfoPlist(
       app: app,
@@ -162,14 +203,23 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     // pure re-sign mode and preserves the IPA's launch/display metadata exactly.
     let requestedBundle = bundleChanged ? requestedBundleRaw : ""
     let requestedName = "" // Display name was safely patched above without invoking zsign's bundle editor.
+
+    var passwordCString = passwordBytes.map { CChar(bitPattern: $0) }
+    passwordCString.append(0)
+    defer {
+      for i in passwordCString.indices { passwordCString[i] = 0 }
+      passwordCString.removeAll(keepingCapacity: false)
+    }
+
     let code = signingRoot.withCString { cPath in
       p12.withCString { cCert in
         p12.withCString { cKey in
           provision.withCString { cProv in
-            password.withCString { cPassword in
+            passwordCString.withUnsafeBufferPointer { cPassword in
               requestedBundle.withCString { cBundle in
                 requestedName.withCString { cName in
-                  zsign(cPath, cCert, cKey, cProv, cPassword, cBundle, cName)
+                  guard let passBase = cPassword.baseAddress else { return Int32(-99) }
+                  return zsign(cPath, cCert, cKey, cProv, passBase, cBundle, cName)
                 }
               }
             }

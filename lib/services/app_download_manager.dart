@@ -114,29 +114,32 @@ class AppDownloadManager extends ChangeNotifier {
       await _store.addFiles([file]);
 
       if (_store.autoSignAfterDownload) {
-        if (_store.identities.isEmpty) {
-          _states[app.id] = AppDownloadSnapshot(file: file, error: StateError('No signing identity configured'));
+        final runtime = await _signer.automaticSigningState();
+        final automatic = runtime['ready'] == true;
+        if (!automatic && _store.identities.isEmpty) {
+          _states[app.id] = AppDownloadSnapshot(file: file, error: StateError('Signing data is unavailable'));
           notifyListeners();
           return file;
         }
-        final identity = _store.identities.first;
         _states[app.id] = AppDownloadSnapshot(file: file, stage: 'signing');
         notifyListeners();
-        final password = await _signer.loadPassword(identity.id);
-        final signedPath = await _signer.sign(
-          ipaPath: file.path,
-          p12Path: identity.p12Path,
-          p12Password: password,
-          provisionPath: identity.provisionPath,
-          options: SignOptions(
-            bundleId: file.bundleId ?? '',
-            displayName: file.name,
-            version: file.version ?? '',
-            build: '',
-            removeSupportedDevices: false,
-            iconPath: '',
-          ),
+        final options = SignOptions(
+          bundleId: file.bundleId ?? '',
+          displayName: file.name,
+          version: file.version ?? '',
+          build: '',
+          removeSupportedDevices: false,
+          iconPath: '',
         );
+        final signedPath = automatic
+            ? await _signer.signAutomatic(ipaPath: file.path, options: options)
+            : await _signer.sign(
+                ipaPath: file.path,
+                p12Path: _store.identities.first.p12Path,
+                p12Password: await _signer.loadPassword(_store.identities.first.id),
+                provisionPath: _store.identities.first.provisionPath,
+                options: options,
+              );
         final signedInfo = await _signer.inspectIpa(signedPath);
         final signedFile = ImportedFile(
           id: '${DateTime.now().microsecondsSinceEpoch}',

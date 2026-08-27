@@ -62,6 +62,41 @@ class SigningService {
     return raw ?? <String, dynamic>{};
   }
 
+
+  Future<Map<String, dynamic>> automaticSigningState() async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, dynamic>('runtimeState', const <String, dynamic>{});
+      return raw ?? <String, dynamic>{'ready': false};
+    } on PlatformException {
+      return <String, dynamic>{'ready': false};
+    }
+  }
+
+  Future<String> signAutomatic({
+    required String ipaPath,
+    required SignOptions options,
+  }) async {
+    final fixedIpa = await _resolveExistingPath(ipaPath);
+    final fixedIcon = options.iconPath.isEmpty ? '' : await _resolveExistingPath(options.iconPath);
+    if (!await File(fixedIpa).exists() && !await Directory(fixedIpa).exists()) {
+      throw StateError('IPA file is missing');
+    }
+    final result = await _channel.invokeMethod<String>('signIpa', {
+      'ipaPath': fixedIpa,
+      'automatic': true,
+      'bundleId': options.bundleId,
+      'displayName': options.displayName,
+      'version': options.version,
+      'build': options.build,
+      'removeSupportedDevices': options.removeSupportedDevices,
+      'iconPath': fixedIcon,
+    });
+    if (result == null || result.isEmpty) {
+      throw StateError('Signing engine returned no output path');
+    }
+    return result;
+  }
+
   Future<String> sign({
     required String ipaPath,
     required String p12Path,
