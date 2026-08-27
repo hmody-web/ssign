@@ -176,7 +176,7 @@ class AppDownloadManager extends ChangeNotifier {
         notifyListeners();
         break;
       case 'failed':
-        final error = StateError(event.error ?? 'Background download failed');
+        final error = Exception(event.error ?? 'Background download failed');
         _states[id] = AppDownloadSnapshot(error: error);
         final failed = _nativeCompleters.remove(id);
         if (failed != null && !failed.isCompleted) failed.completeError(error);

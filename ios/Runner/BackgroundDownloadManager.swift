@@ -31,6 +31,7 @@ final class BackgroundDownloadManager: NSObject, URLSessionDownloadDelegate, URL
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.background(withIdentifier: BoomaShared.backgroundSessionIdentifier)
         config.sessionSendsLaunchEvents = true
+        config.sharedContainerIdentifier = BoomaShared.appGroup
         config.isDiscretionary = false
         config.waitsForConnectivity = true
         config.allowsCellularAccess = true
@@ -62,6 +63,11 @@ final class BackgroundDownloadManager: NSObject, URLSessionDownloadDelegate, URL
         if let current = records[id], current.status == "downloading" || current.status == "paused" {
             return dictionary(current)
         }
+
+        // Fail early with a useful error if iOS cannot create the final download folder.
+        // This also guarantees that the background task never depends on Dart/Flutter
+        // being alive to create its destination directory.
+        _ = try downloadsDirectory()
 
         var record = Record(
             id: id,
@@ -201,16 +207,29 @@ final class BackgroundDownloadManager: NSObject, URLSessionDownloadDelegate, URL
         queue.sync {
             guard var record = records[id] else { return }
             do {
-                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                let imports = docs.appendingPathComponent("Imports", isDirectory: true)
-                try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)
-                var destination = imports.appendingPathComponent(record.fileName)
-                if FileManager.default.fileExists(atPath: destination.path) {
-                    let ext = destination.pathExtension
-                    let stem = destination.deletingPathExtension().lastPathComponent
-                    destination = imports.appendingPathComponent("\(stem)-\(Int(Date().timeIntervalSince1970)).\(ext)")
+                let imports = try downloadsDirectory()
+                var destination = uniqueDestination(in: imports, fileName: record.fileName)
+
+                do {
+                    try FileManager.default.moveItem(at: location, to: destination)
+                } catch {
+                    // A background URLSession temporary file can occasionally live on a
+                    // different volume/container. Fall back to copy + remove rather than
+                    // failing the completed download.
+                    do {
+                        if FileManager.default.fileExists(atPath: destination.path) {
+                            destination = uniqueDestination(in: imports, fileName: record.fileName)
+                        }
+                        try FileManager.default.copyItem(at: location, to: destination)
+                        try? FileManager.default.removeItem(at: location)
+                    } catch {
+                        throw NSError(
+                            domain: "BoomaDownload",
+                            code: 22,
+                            userInfo: [NSLocalizedDescriptionKey: "تعذر إنشاء ملف IPA النهائي داخل مجلد Imports: \(error.localizedDescription)"]
+                        )
+                    }
                 }
-                try FileManager.default.moveItem(at: location, to: destination)
                 let size = ((try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?.int64Value) ?? record.downloadedBytes
                 record.downloadedBytes = size
                 record.totalBytes = max(size, record.totalBytes)
@@ -341,6 +360,57 @@ final class BackgroundDownloadManager: NSObject, URLSessionDownloadDelegate, URL
         }
     }
 
+
+    private func downloadsDirectory() throws -> URL {
+        let fileManager = FileManager.default
+        guard let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            throw NSError(
+                domain: "BoomaDownload",
+                code: 20,
+                userInfo: [NSLocalizedDescriptionKey: "تعذر الوصول إلى مجلد Documents الخاص بالتطبيق"]
+            )
+        }
+
+        let imports = docs.appendingPathComponent("Imports", isDirectory: true)
+        do {
+            try fileManager.createDirectory(
+                at: imports,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+
+            // Write/remove a tiny probe so a broken sandbox or entitlement is reported
+            // immediately instead of surfacing later as the vague "Cannot create file".
+            let probe = imports.appendingPathComponent(".booma-write-test")
+            try Data([0x42]).write(to: probe, options: .atomic)
+            try? fileManager.removeItem(at: probe)
+            return imports
+        } catch {
+            throw NSError(
+                domain: "BoomaDownload",
+                code: 21,
+                userInfo: [NSLocalizedDescriptionKey: "تعذر إنشاء مجلد التنزيل أو الكتابة داخله: \(error.localizedDescription)"]
+            )
+        }
+    }
+
+    private func uniqueDestination(in directory: URL, fileName: String) -> URL {
+        let fileManager = FileManager.default
+        var destination = directory.appendingPathComponent(sanitizedFileName(fileName))
+        guard fileManager.fileExists(atPath: destination.path) else { return destination }
+
+        let ext = destination.pathExtension
+        let stem = destination.deletingPathExtension().lastPathComponent
+        var counter = 1
+        repeat {
+            let suffix = "\(Int(Date().timeIntervalSince1970))-\(counter)"
+            let name = ext.isEmpty ? "\(stem)-\(suffix)" : "\(stem)-\(suffix).\(ext)"
+            destination = directory.appendingPathComponent(name)
+            counter += 1
+        } while fileManager.fileExists(atPath: destination.path)
+        return destination
+    }
+
     private func saveIconIfPossible(for record: inout Record) {
         guard !record.appIconURL.isEmpty,
               let source = URL(string: record.appIconURL),
@@ -357,7 +427,10 @@ final class BackgroundDownloadManager: NSObject, URLSessionDownloadDelegate, URL
         let fallback = "Application-\(Int(Date().timeIntervalSince1970)).ipa"
         var value = input.trimmingCharacters(in: .whitespacesAndNewlines)
         if value.isEmpty { value = fallback }
-        value = value.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        let invalid = CharacterSet(charactersIn: "\\/:*?\"<>|\n\r\t").union(.controlCharacters)
+        value = value.components(separatedBy: invalid).joined(separator: "-")
+        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty { value = fallback }
         if !value.lowercased().hasSuffix(".ipa") { value += ".ipa" }
         return value
     }

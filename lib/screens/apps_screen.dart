@@ -367,7 +367,11 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   }
 
   String _friendlyError(Object e) {
-    final s = e.toString().replaceFirst('HttpException: ', '').trim();
+    final s = e.toString()
+        .replaceFirst('HttpException: ', '')
+        .replaceFirst('Exception: ', '')
+        .replaceFirst('Bad state: ', '')
+        .trim();
     if (s.contains('SocketException')) return tr('تحقق من اتصال الإنترنت', 'Check your internet connection');
     return s.isNotEmpty ? s : tr('تعذر إكمال العملية', 'Unable to complete the operation');
   }

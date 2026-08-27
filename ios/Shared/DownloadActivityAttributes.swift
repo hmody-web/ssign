@@ -20,6 +20,6 @@ struct DownloadActivityAttributes: ActivityAttributes {
 
 enum BoomaShared {
     static let appGroup = "group.com.sbooma.sign"
-    static let backgroundSessionIdentifier = "com.sbooma.sign.background-downloads"
+    static let backgroundSessionIdentifier = "com.sbooma.sign.background-downloads.v2"
     static let commandNotification = "com.sbooma.sign.download-command"
 }
