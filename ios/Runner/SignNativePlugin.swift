@@ -201,10 +201,16 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
 
     let requestedIcon = str("iconPath")
     if !requestedIcon.isEmpty { try replaceAppIcons(app: app, iconPath: requestedIcon) }
+
+    // Snapshot the exact plist state we want to preserve. Some third-party IPAs depend on
+    // legacy launch-screen / device-family metadata. zsign's bundle-id rewrite can normalize
+    // Info.plist and accidentally drop those keys, which makes iOS open the app in a reduced
+    // compatibility viewport with black bars. We therefore let zsign route the identifier once,
+    // restore our untouched metadata, then perform a final pure re-sign.
+    let preservedInfoBeforeSigning = try readInfoPlist(app: app)
+
     // ZSignApple SignFolder expects the extracted IPA root that CONTAINS Payload, not Payload itself.
     let signingRoot = root.path
-    // IMPORTANT: pass empty values when they did not actually change. This keeps zsign in
-    // pure re-sign mode and preserves the IPA's launch/display metadata exactly.
     let requestedBundle = !automaticBundleOverride.isEmpty
       ? automaticBundleOverride
       : (bundleChanged ? requestedBundleRaw : "")
@@ -217,15 +223,17 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
       passwordCString.removeAll(keepingCapacity: false)
     }
 
-    let code = signingRoot.withCString { cPath in
-      p12.withCString { cCert in
-        p12.withCString { cKey in
-          provision.withCString { cProv in
-            passwordCString.withUnsafeBufferPointer { cPassword in
-              requestedBundle.withCString { cBundle in
-                requestedName.withCString { cName in
-                  guard let passBase = cPassword.baseAddress else { return Int32(-99) }
-                  return zsign(cPath, cCert, cKey, cProv, passBase, cBundle, cName)
+    func runZsign(bundle: String) -> Int32 {
+      signingRoot.withCString { cPath in
+        p12.withCString { cCert in
+          p12.withCString { cKey in
+            provision.withCString { cProv in
+              passwordCString.withUnsafeBufferPointer { cPassword in
+                bundle.withCString { cBundle in
+                  requestedName.withCString { cName in
+                    guard let passBase = cPassword.baseAddress else { return Int32(-99) }
+                    return zsign(cPath, cCert, cKey, cProv, passBase, cBundle, cName)
+                  }
                 }
               }
             }
@@ -233,7 +241,30 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
         }
       }
     }
-    guard code==0 else {throw NSError(domain:"Sign",code:Int(code),userInfo:[NSLocalizedDescriptionKey:"zsign returned code \(code)"])}
+
+    let firstCode = runZsign(bundle: requestedBundle)
+    guard firstCode == 0 else {
+      throw NSError(domain:"Sign",code:Int(firstCode),userInfo:[NSLocalizedDescriptionKey:"zsign returned code \(firstCode)"])
+    }
+
+    if !requestedBundle.isEmpty {
+      // Capture the identifier that zsign actually chose, then put the original presentation
+      // metadata back exactly as it was before signing. This preserves UILaunchStoryboardName,
+      // UILaunchScreen, UILaunchImages, UIDeviceFamily, orientation keys, scene metadata, etc.
+      let routedInfo = try readInfoPlist(app: app)
+      let finalBundleId = (routedInfo["CFBundleIdentifier"] as? String) ?? requestedBundle
+      var restored = preservedInfoBeforeSigning
+      restored["CFBundleIdentifier"] = finalBundleId
+      let restoredData = try PropertyListSerialization.data(fromPropertyList: restored, format: .binary, options: 0)
+      try restoredData.write(to: app.appendingPathComponent("Info.plist"), options: .atomic)
+
+      // The plist changed after the first signing pass, so sign once more without asking zsign
+      // to edit the bundle. This final pass seals the restored metadata into the signature.
+      let finalCode = runZsign(bundle: "")
+      guard finalCode == 0 else {
+        throw NSError(domain:"Sign",code:Int(finalCode),userInfo:[NSLocalizedDescriptionKey:"zsign final pass returned code \(finalCode)"])
+      }
+    }
     let docs=try FileManager.default.url(for:.documentDirectory,in:.userDomainMask,appropriateFor:nil,create:true)
     let outDir=docs.appendingPathComponent("Signed",isDirectory:true); try FileManager.default.createDirectory(at:outDir,withIntermediateDirectories:true)
     let base=URL(fileURLWithPath:ipa).deletingPathExtension().lastPathComponent.replacingOccurrences(of:" ",with:"_")
