@@ -625,7 +625,7 @@ class _CategoryShelf extends StatelessWidget {
     final primary = Theme.of(context).colorScheme.primary;
     final allSelected = selected == null || selected!.isEmpty;
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 13),
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface.withValues(alpha: .72),
         borderRadius: BorderRadius.circular(24),
@@ -731,7 +731,7 @@ class _FeaturedCarouselState extends State<_FeaturedCarousel> {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        height: 210,
+        height: 310,
         child: PageView.builder(
           controller: _controller,
           physics: const BouncingScrollPhysics(),
@@ -809,7 +809,7 @@ class _FeaturedBannerCardState extends State<_FeaturedBannerCard> with SingleTic
                 gradient: LinearGradient(
                   begin: widget.isArabic ? Alignment.centerRight : Alignment.centerLeft,
                   end: widget.isArabic ? Alignment.centerLeft : Alignment.centerRight,
-                  colors: const [Colors.black, Color(0xE6000000), Color(0x66000000), Color(0x12000000)],
+                  colors: const [Color.fromARGB(164, 0, 0, 0), Color.fromARGB(134, 0, 0, 0), Color(0x66000000), Color(0x12000000)],
                   stops: const [0, .42, .72, 1],
                 ),
               ),

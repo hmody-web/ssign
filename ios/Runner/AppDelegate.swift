@@ -11,6 +11,18 @@ import UIKit
     if let registrar = self.registrar(forPlugin: "AdminSecurePlugin") {
       AdminSecurePlugin.register(with: registrar)
     }
+    if let registrar = self.registrar(forPlugin: "BackgroundDownloadPlugin") {
+      BackgroundDownloadPlugin.register(with: registrar)
+    }
+    _ = BackgroundDownloadManager.shared
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  override func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
+    if identifier == BoomaShared.backgroundSessionIdentifier {
+      BackgroundDownloadManager.shared.attachBackgroundCompletionHandler(completionHandler)
+      return
+    }
+    super.application(application, handleEventsForBackgroundURLSession: identifier, completionHandler: completionHandler)
   }
 }
