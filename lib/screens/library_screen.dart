@@ -55,7 +55,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     // the application-container prefix can change after an app update.
     final snapshot = List<ImportedFile>.from(store.files);
     for (final f in snapshot) {
-      if (!_isIpa(f)) continue;
+      if (!_isSignableApp(f)) continue;
 
       final repairedIpa = await PersistentPathService.instance.resolveDataFile(f.path);
       final repairedIcon = await PersistentPathService.instance.resolveIcon(
@@ -79,7 +79,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           current.iconPath!.isNotEmpty &&
           File(current.iconPath!).existsSync();
       final ipaPath = await PersistentPathService.instance.resolveDataFile(current.path);
-      if (iconReady || ipaPath == null || !File(ipaPath).existsSync()) continue;
+      if (iconReady || ipaPath == null || (!File(ipaPath).existsSync() && !Directory(ipaPath).existsSync())) continue;
 
       try {
         final info = await signer.inspectIpa(ipaPath);
@@ -128,7 +128,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Future<void> _deleteOne(ImportedFile file) async {
     if (!await _confirmDelete(itemName: file.name)) return;
-    try { await File(file.path).delete(); } catch (_) {}
+    try {
+      final type = await FileSystemEntity.type(file.path, followLinks: false);
+      if (type == FileSystemEntityType.directory) {
+        await Directory(file.path).delete(recursive: true);
+      } else {
+        await File(file.path).delete();
+      }
+    } catch (_) {}
     await store.removeFile(file.id);
   }
 
@@ -136,7 +143,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final targets = store.importedFiles.where((f) => selected.contains(f.id)).toList();
     if (targets.isEmpty || !await _confirmDelete(count: targets.length)) return;
     for (final f in targets) {
-      try { await File(f.path).delete(); } catch (_) {}
+      try {
+        final type = await FileSystemEntity.type(f.path, followLinks: false);
+        if (type == FileSystemEntityType.directory) {
+          await Directory(f.path).delete(recursive: true);
+        } else {
+          await File(f.path).delete();
+        }
+      } catch (_) {}
     }
     await store.removeFiles(selected);
     if (mounted) setState(() { selected.clear(); selecting = false; });
@@ -147,7 +161,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (picked.isEmpty) return;
     final enriched = <ImportedFile>[];
     for (final f in picked) {
-      if (f.kind == 'IPA') {
+      if (f.kind == 'IPA' || f.kind == 'APP' || f.path.toLowerCase().endsWith('.app')) {
         try {
           final info = await signer.inspectIpa(f.path);
           final appName = (info['displayName'] ?? '').toString().trim();
@@ -170,6 +184,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   bool _isIpa(ImportedFile file) => file.kind == 'IPA' || file.kind == 'Signed IPA' || file.path.toLowerCase().endsWith('.ipa');
+  bool _isAppBundle(ImportedFile file) => file.kind == 'APP' || file.path.toLowerCase().endsWith('.app');
+  bool _isSignableApp(ImportedFile file) => _isIpa(file) || _isAppBundle(file);
 
   Future<void> _extractArchive(ImportedFile file) async {
     final dest = await showFolderDestinationPicker(context, title: tr('استخراج داخل المجلدات', 'Extract inside Folders'));
@@ -205,6 +221,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Future<void> _showFileActions(ImportedFile file) async {
     final isIpa = _isIpa(file);
+    final isAppBundle = _isAppBundle(file);
+    final isSignable = isIpa || isAppBundle;
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -254,7 +272,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ],
                 ),
                 const SizedBox(height: 18),
-                if (isIpa) ...[
+                if (isSignable) ...[
                   _actionTile(
                     context,
                     icon: CupertinoIcons.signature,
@@ -908,6 +926,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   String _subtitle(ImportedFile f) {
     final kind = switch (f.kind) {
       'Signed IPA' => tr('IPA موقع', 'Signed IPA'),
+      'APP' => tr('حزمة APP', 'APP Bundle'),
       'Certificate' => tr('شهادة', 'Certificate'),
       'Provision' => tr('ملف توفير', 'Provision'),
       'Archive' => tr('أرشيف', 'Archive'),
@@ -921,6 +940,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   IconData _icon(String k) => switch (k) {
         'IPA' => CupertinoIcons.app_badge,
+        'APP' => CupertinoIcons.app_badge,
         'Signed IPA' => CupertinoIcons.checkmark_shield_fill,
         'Certificate' => CupertinoIcons.lock_shield,
         'Provision' => CupertinoIcons.doc_text,

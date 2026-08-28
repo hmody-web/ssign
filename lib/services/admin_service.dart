@@ -81,13 +81,35 @@ class AdminService {
   String? _accessToken;
   final ValueNotifier<String?> deletedAppId = ValueNotifier<String?>(null);
 
-  Future<String?> get deviceId async => (await SharedPreferences.getInstance()).getString(_deviceIdKey);
+  Future<String?> get deviceId async {
+    // Keep the pairing id in Keychain as well as SharedPreferences. iOS normally
+    // preserves Keychain items across app deletion/reinstallation, while
+    // SharedPreferences is removed with the app container.
+    try {
+      final secure = await _channel.invokeMethod<String>('loadDeviceId');
+      if (secure != null && secure.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        if (prefs.getString(_deviceIdKey) != secure) {
+          await prefs.setString(_deviceIdKey, secure);
+        }
+        return secure;
+      }
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+    final legacy = prefs.getString(_deviceIdKey);
+    if (legacy != null && legacy.isNotEmpty) {
+      try { await _channel.invokeMethod<void>('saveDeviceId', {'device_id': legacy}); } catch (_) {}
+      return legacy;
+    }
+    return null;
+  }
   bool get hasSession => _accessToken?.isNotEmpty == true;
 
   /// Lightweight server check used only to decide whether the Admin card should
   /// be visible in Settings. Real access still requires the signed challenge.
   Future<bool> isThisDeviceAdmin() async {
-    final id = await deviceId;
+    final id = await _ensureDeviceId();
     if (id == null || id.isEmpty) return false;
     try {
       final r = await _json('device_status', method: 'POST', body: {'device_id': id});
@@ -122,12 +144,40 @@ class AdminService {
     });
     final device = '${r['device_id'] ?? ''}';
     if (device.isEmpty) throw Exception('الخادم لم يرجع معرف الجهاز.');
+    await _persistDeviceId(device);
+  }
+
+
+  Future<void> _persistDeviceId(String value) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_deviceIdKey, device);
+    await prefs.setString(_deviceIdKey, value);
+    try {
+      await _channel.invokeMethod<void>('saveDeviceId', {'device_id': value});
+    } catch (_) {}
+  }
+
+  Future<String?> _ensureDeviceId() async {
+    final existing = await deviceId;
+    if (existing != null && existing.isNotEmpty) return existing;
+
+    // Recovery path after deleting/reinstalling the app: the secure P-256
+    // identity survives in Keychain/Secure Enclave, so the server can map that
+    // public key back to the already paired device id. No password or re-pairing
+    // is required, and actual admin access still requires a private-key signature.
+    try {
+      final id = await identity();
+      final r = await _json('recover_device', method: 'POST', body: {'public_key': id.publicKey});
+      final recovered = '${r['device_id'] ?? ''}';
+      if (recovered.isNotEmpty) {
+        await _persistDeviceId(recovered);
+        return recovered;
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<void> loginWithDevice() async {
-    final id = await deviceId;
+    final id = await _ensureDeviceId();
     if (id == null || id.isEmpty) throw Exception('هذا الجهاز غير مربوط كأدمن.');
     final challenge = await _json('challenge', method: 'POST', body: {'device_id': id});
     final message = '${challenge['message'] ?? ''}';

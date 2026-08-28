@@ -13,15 +13,15 @@ class PersistentPathService {
 
   Future<String?> resolveDataFile(String? storedPath) async {
     if (storedPath == null || storedPath.trim().isEmpty) return null;
-    if (await File(storedPath).exists()) return storedPath;
+    if (await File(storedPath).exists() || await Directory(storedPath).exists()) return storedPath;
 
     final docs = await _documents();
     final name = p.basename(storedPath);
     if (name.isEmpty) return null;
 
     for (final folder in const ['Imports', 'Signed']) {
-      final candidate = File(p.join(docs.path, folder, name));
-      if (await candidate.exists()) return candidate.path;
+      final candidatePath = p.join(docs.path, folder, name);
+      if (await File(candidatePath).exists() || await Directory(candidatePath).exists()) return candidatePath;
     }
 
     return null;
@@ -29,7 +29,7 @@ class PersistentPathService {
 
   Future<String?> resolveIcon({String? storedPath, String? bundleId}) async {
     if (storedPath != null && storedPath.trim().isNotEmpty) {
-      if (await File(storedPath).exists()) return storedPath;
+      if (await File(storedPath).exists() || await Directory(storedPath).exists()) return storedPath;
     }
 
     final docs = await _documents();

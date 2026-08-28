@@ -158,6 +158,13 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     defer {try? FileManager.default.removeItem(at:root)}
     let app=try findApp(in:root)
 
+    // Some third-party IPAs arrive with stale code-signature directories, zsign
+    // cache artifacts, or executable mode bits that were lost while the IPA was
+    // repacked. Other signers silently normalize these first. Do the same here
+    // so valid apps do not fail before zsign gets a clean bundle to work with.
+    sanitizeForResigning(app: app)
+    restoreExecutablePermissions(in: app)
+
     // Read the original metadata before touching Info.plist. The signing screen pre-fills
     // these fields, so blindly sending the same values back through the signing engine
     // caused some IPAs to be unnecessarily rewritten. For apps that rely on legacy or
@@ -242,7 +249,14 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
       }
     }
 
-    let firstCode = runZsign(bundle: requestedBundle)
+    var firstCode = runZsign(bundle: requestedBundle)
+    if firstCode != 0 {
+      // Retry once after a deeper cleanup. This specifically helps IPAs that
+      // contain stale nested signatures / cache files from another signing tool.
+      sanitizeForResigning(app: app)
+      restoreExecutablePermissions(in: app)
+      firstCode = runZsign(bundle: requestedBundle)
+    }
     guard firstCode == 0 else {
       throw NSError(domain:"Sign",code:Int(firstCode),userInfo:[NSLocalizedDescriptionKey:"zsign returned code \(firstCode)"])
     }
@@ -272,6 +286,32 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     if FileManager.default.fileExists(atPath:out.path){try FileManager.default.removeItem(at:out)}
     try FileManager.default.zipItem(at:root,to:out,shouldKeepParent:false,compressionMethod:.deflate)
     return out.path
+  }
+
+  private func sanitizeForResigning(app: URL) {
+    let fm = FileManager.default
+    let removableDirectoryNames: Set<String> = ["_CodeSignature", ".zsign_cache"]
+    let removableFileNames: Set<String> = ["CodeResources"]
+
+    if let enumerator = fm.enumerator(
+      at: app,
+      includingPropertiesForKeys: [.isDirectoryKey],
+      options: [],
+      errorHandler: { _, _ in true }
+    ) {
+      var targets = [URL]()
+      for case let url as URL in enumerator {
+        let name = url.lastPathComponent
+        if removableDirectoryNames.contains(name) || removableFileNames.contains(name) {
+          targets.append(url)
+          if removableDirectoryNames.contains(name) { enumerator.skipDescendants() }
+        }
+      }
+      // Delete deepest entries first so nested bundles are cleaned safely.
+      for url in targets.sorted(by: { $0.path.count > $1.path.count }) {
+        try? fm.removeItem(at: url)
+      }
+    }
   }
 
   private func prepareAppRoot(_ source: URL, prefix: String) throws -> URL {
@@ -614,6 +654,7 @@ final class AdminSecurePlugin: NSObject, FlutterPlugin {
     private static let service = "com.scrptaty.ssign.admin.identity"
     private static let keyAccount = "secure-enclave-p256"
     private static let softwareKeyAccount = "software-p256-fallback"
+    private static let deviceIdAccount = "paired-device-id"
 
     static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "sign/admin_secure", binaryMessenger: registrar.messenger())
@@ -659,6 +700,28 @@ final class AdminSecurePlugin: NSObject, FlutterPlugin {
 
         case "hasIdentity":
             result(loadKeychain(account: Self.keyAccount) != nil || loadKeychain(account: Self.softwareKeyAccount) != nil)
+
+        case "saveDeviceId":
+            guard let args = call.arguments as? [String: Any],
+                  let value = args["device_id"] as? String,
+                  !value.isEmpty else {
+                result(FlutterError(code: "BAD_ARGS", message: "Missing device id", details: nil))
+                return
+            }
+            do {
+                try saveKeychain(Data(value.utf8), account: Self.deviceIdAccount)
+                result(nil)
+            } catch {
+                result(FlutterError(code: "ADMIN_DEVICE_ID_SAVE", message: error.localizedDescription, details: nil))
+            }
+
+        case "loadDeviceId":
+            if let data = loadKeychain(account: Self.deviceIdAccount),
+               let value = String(data: data, encoding: .utf8) {
+                result(value)
+            } else {
+                result("")
+            }
 
         default:
             result(FlutterMethodNotImplemented)

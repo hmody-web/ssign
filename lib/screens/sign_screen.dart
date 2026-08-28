@@ -222,12 +222,15 @@ class _SignScreenState extends State<SignScreen> {
   Future<void> _chooseIpa() async {
     final v = await importer.pickFiles();
     if (v.isEmpty) return;
-    final ipaFiles = v.where((e) => e.path.toLowerCase().endsWith('.ipa')).toList();
-    if (ipaFiles.isEmpty) {
-      if (mounted) showAppNotice(context, tr('اختر ملف IPA للتوقيع.', 'Choose an IPA file to sign.'), type: AppNoticeType.error);
+    final appFiles = v.where((e) {
+      final lower = e.path.toLowerCase();
+      return lower.endsWith('.ipa') || lower.endsWith('.app') || e.kind == 'APP';
+    }).toList();
+    if (appFiles.isEmpty) {
+      if (mounted) showAppNotice(context, tr('اختر ملف IPA أو APP للتوقيع.', 'Choose an IPA or APP file to sign.'), type: AppNoticeType.error);
       return;
     }
-    final f = ipaFiles.first;
+    final f = appFiles.first;
     _ignoredPreparedPath = null;
     setState(() {
       _resetCopies();

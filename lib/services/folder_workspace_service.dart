@@ -61,15 +61,31 @@ class FolderWorkspaceService {
     return out;
   }
 
-  Future<File> copyInto({required String sourcePath, required String relative, String? name}) async {
+  Future<FileSystemEntity> copyInto({required String sourcePath, required String relative, String? name}) async {
     final dir = await directoryFor(relative);
     final dest = await _uniquePath(dir.path, name ?? p.basename(sourcePath));
+    final type = await FileSystemEntity.type(sourcePath, followLinks: false);
+    if (type == FileSystemEntityType.directory) {
+      final target = Directory(dest);
+      await target.create(recursive: true);
+      await for (final child in Directory(sourcePath).list(recursive: false, followLinks: false)) {
+        await _copyTree(child, target.path);
+      }
+      return target;
+    }
     return File(sourcePath).copy(dest);
   }
 
-  Future<File> moveInto({required String sourcePath, required String relative, String? name}) async {
+  Future<FileSystemEntity> moveInto({required String sourcePath, required String relative, String? name}) async {
     final copied = await copyInto(sourcePath: sourcePath, relative: relative, name: name);
-    try { await File(sourcePath).delete(); } catch (_) {}
+    try {
+      final type = await FileSystemEntity.type(sourcePath, followLinks: false);
+      if (type == FileSystemEntityType.directory) {
+        await Directory(sourcePath).delete(recursive: true);
+      } else {
+        await File(sourcePath).delete();
+      }
+    } catch (_) {}
     return copied;
   }
 
@@ -132,6 +148,11 @@ class FolderWorkspaceService {
       await for (final child in entity.list(followLinks: false)) {
         await _copyTree(child, next.path);
       }
+    } else if (entity is Link) {
+      try {
+        final target = await entity.target();
+        await Link(p.join(parent, p.basename(entity.path))).create(target, recursive: true);
+      } catch (_) {}
     }
   }
 
