@@ -10,6 +10,8 @@ import '../services/signing_service.dart';
 import '../services/localized.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
+import '../widgets/native_material_controls.dart';
+import '../widgets/native_ios_controls.dart';
 
 class CertificatesScreen extends StatefulWidget {
   const CertificatesScreen({super.key});
@@ -63,23 +65,26 @@ class _CertificatesScreenState extends State<CertificatesScreen> {
                 children: [
                   Text(tr('إضافة شهادة توقيع', 'Add Signing Identity'), style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 15),
-                  TextField(controller: name, decoration: InputDecoration(labelText: tr('اسم الشهادة', 'Name'), hintText: tr('شهادة المطور', 'My Developer Certificate'))),
+                  NativeIOSTextField(controller: name, placeholder: tr('اسم الشهادة', 'Name')),
                   const SizedBox(height: 10),
-                  FilledButton.tonalIcon(
+                  NativeIOSButton(
+                    title: p12 == null ? tr('اختيار ملف P12', 'Choose P12') : p.basename(p12!),
+                    systemImage: 'lock.shield',
                     onPressed: () async { final x = await importer.pickAndPersistOne('p12'); if (x != null) setLocal(() => p12 = x); },
-                    icon: const Icon(CupertinoIcons.lock_shield),
-                    label: Text(p12 == null ? tr('اختيار ملف P12', 'Choose P12') : p.basename(p12!)),
                   ),
                   const SizedBox(height: 8),
-                  TextField(controller: pass, obscureText: true, decoration: InputDecoration(labelText: tr('كلمة مرور P12', 'P12 Password'))),
+                  NativeIOSTextField(controller: pass, obscureText: true, placeholder: tr('كلمة مرور P12', 'P12 Password')),
                   const SizedBox(height: 8),
-                  FilledButton.tonalIcon(
+                  NativeIOSButton(
+                    title: prov == null ? tr('اختيار mobileprovision', 'Choose mobileprovision') : p.basename(prov!),
+                    systemImage: 'doc.text',
                     onPressed: () async { final x = await importer.pickAndPersistOne('mobileprovision'); if (x != null) setLocal(() => prov = x); },
-                    icon: const Icon(CupertinoIcons.doc_text),
-                    label: Text(prov == null ? tr('اختيار mobileprovision', 'Choose mobileprovision') : p.basename(prov!)),
                   ),
                   const SizedBox(height: 14),
-                  FilledButton(
+                  NativeIOSButton(
+                    title: busy ? tr('جاري الحفظ…', 'Saving…') : tr('حفظ الشهادة', 'Save Identity'),
+                    systemImage: 'checkmark.shield',
+                    prominent: true,
                     onPressed: busy ? null : () async {
                       if (p12 == null || prov == null) return;
                       setLocal(() => busy = true);
@@ -103,7 +108,6 @@ class _CertificatesScreenState extends State<CertificatesScreen> {
                         if (ctx.mounted) showAppNotice(ctx, '${tr('فشل التحقق من الشهادة', 'Certificate validation failed')}: $e', type: AppNoticeType.error);
                       }
                     },
-                    child: busy ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)) : Text(tr('حفظ الشهادة', 'Save Identity')),
                   ),
                 ],
               ),
@@ -202,7 +206,7 @@ class _CertificatesScreenState extends State<CertificatesScreen> {
                     const SizedBox(height: 5),
                     Text(tr('P12 + ملفات provisioning', 'P12 + provisioning identities'), style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .55))),
                   ])),
-                  IconButton.filledTonal(onPressed: _add, icon: const Icon(CupertinoIcons.add)),
+                  NativeIOSButton(title: '', systemImage: 'plus', onPressed: _add, width: 44, height: 44),
                 ]),
                 const SizedBox(height: 22),
                 if (hasAutomatic) _automaticCard(context, runtime),
@@ -214,7 +218,7 @@ class _CertificatesScreenState extends State<CertificatesScreen> {
                     const SizedBox(height: 6),
                     Text(tr('أضف شهادة P12 مع ملف mobileprovision الخاص بها.', 'Add a P12 certificate and its mobileprovision profile.'), textAlign: TextAlign.center, style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .55))),
                     const SizedBox(height: 14),
-                    FilledButton(onPressed: _add, child: Text(tr('إضافة شهادة', 'Add Certificate'))),
+                    NativeIOSButton(title: tr('إضافة شهادة', 'Add Certificate'), systemImage: 'plus', onPressed: _add, prominent: true, width: 170),
                   ])),
                 ...store.identities.map((id) {
                   final expiry = id.expiresAt ?? _profileExpiry(id.provisionPath);
@@ -247,7 +251,7 @@ class _CertificatesScreenState extends State<CertificatesScreen> {
                           const SizedBox(height: 3),
                           Text('${p.basename(id.p12Path)} • ${p.basename(id.provisionPath)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .38))),
                         ])),
-                        IconButton(onPressed: () => _deleteIdentity(id), icon: const Icon(CupertinoIcons.trash, size: 19)),
+                        NativeCompatIconButton(onPressed: () => _deleteIdentity(id), icon: const Icon(CupertinoIcons.trash, size: 19)),
                       ]),
                     ),
                   );

@@ -12,6 +12,7 @@ import '../services/signing_service.dart';
 import '../services/localized.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
+import '../widgets/native_ios_controls.dart';
 import 'signed_files_screen.dart';
 
 class SignScreen extends StatefulWidget {
@@ -442,7 +443,11 @@ class _SignScreenState extends State<SignScreen> {
                       ],
                     ),
                     const SizedBox(height: 18),
-                    FilledButton.icon(
+                    NativeIOSButton(
+                      title: tr('تثبيت', 'Install'),
+                      systemImage: 'arrow.down.circle.fill',
+                      prominent: true,
+                      height: 54,
                       onPressed: () async {
                         final ok = await signing.install(model.path);
                         if (ok) {
@@ -451,24 +456,15 @@ class _SignScreenState extends State<SignScreen> {
                           showAppNotice(context, tr('تعذر فتح مثبت iOS.', 'iOS did not open the installer.'), type: AppNoticeType.error);
                         }
                       },
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(54),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      ),
-                      icon: const Icon(CupertinoIcons.arrow_down_circle_fill),
-                      label: Text(tr('تثبيت', 'Install'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
                     ),
                     const SizedBox(height: 8),
                     Align(
                       alignment: Alignment.center,
-                      child: TextButton(
+                      child: NativeIOSButton(
+                        title: tr('لاحقاً', 'Later'),
                         onPressed: () => Navigator.of(ctx).pop(),
-                        style: TextButton.styleFrom(
-                          minimumSize: const Size(76, 34),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        child: Text(tr('لاحقاً', 'Later'), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                        width: 92,
+                        height: 36,
                       ),
                     ),
                   ],
@@ -595,19 +591,12 @@ class _SignScreenState extends State<SignScreen> {
     }
   }
 
-  Widget _signButton(BuildContext context) => FilledButton.icon(
-        style: FilledButton.styleFrom(
-          minimumSize: const Size.fromHeight(58),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        ),
+  Widget _signButton(BuildContext context) => NativeIOSButton(
+        title: busy ? tr('جاري التوقيع…', 'Signing…') : tr('بدء التوقيع', 'Start Signing'),
+        systemImage: busy ? 'hourglass' : 'signature',
         onPressed: busy ? null : _sign,
-        icon: busy
-            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-            : const Icon(CupertinoIcons.signature),
-        label: Text(
-          busy ? tr('جاري التوقيع…', 'Signing…') : tr('بدء التوقيع', 'Start Signing'),
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-        ),
+        prominent: true,
+        height: 58,
       );
 
   @override
@@ -668,7 +657,7 @@ class _SignScreenState extends State<SignScreen> {
                             ),
                           ),
                           if (store.identities.isNotEmpty)
-                            TextButton(onPressed: _chooseIdentity, child: Text(tr('خيارات', 'Options'))),
+                            NativeIOSButton(title: tr('خيارات', 'Options'), onPressed: _chooseIdentity, width: 92, height: 38),
                         ],
                       )
                     else if (identity == null)
@@ -702,7 +691,7 @@ class _SignScreenState extends State<SignScreen> {
                             ),
                           ),
                           if (store.identities.length + (_automaticReady ? 1 : 0) > 1)
-                            TextButton(onPressed: _chooseIdentity, child: Text(tr('تغيير', 'Change'))),
+                            NativeIOSButton(title: tr('تغيير', 'Change'), onPressed: _chooseIdentity, width: 92, height: 38),
                         ],
                       ),
                   ],
@@ -761,15 +750,16 @@ class _SignScreenState extends State<SignScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      FilledButton.tonalIcon(
+                      NativeIOSButton(
+                        title: replacementIconPath == null ? tr('تغيير أيقونة التطبيق', 'Change App Icon') : tr('اختيار أيقونة أخرى', 'Choose Another Icon'),
+                        systemImage: 'photo',
                         onPressed: _chooseReplacementIcon,
-                        icon: const Icon(CupertinoIcons.photo),
-                        label: Text(replacementIconPath == null ? tr('تغيير أيقونة التطبيق', 'Change App Icon') : tr('اختيار أيقونة أخرى', 'Choose Another Icon')),
                       ),
                       if (replacementIconPath != null)
-                        TextButton(
+                        NativeIOSButton(
+                          title: tr('استخدام الأيقونة السابقة', 'Use Original Icon'),
+                          systemImage: 'arrow.uturn.backward',
                           onPressed: () { setState(() => replacementIconPath = null); _persistDraft(); },
-                          child: Text(tr('استخدام الأيقونة السابقة', 'Use Original Icon')),
                         ),
                     ],
                   ),
@@ -780,27 +770,21 @@ class _SignScreenState extends State<SignScreen> {
                 GlassCard(
                   child: Column(
                     children: [
-                      TextField(
-                        controller: bundle,
-                      decoration: InputDecoration(
-                        labelText: tr('معرّف الحزمة Bundle ID', 'Bundle Identifier'),
-                        hintText: tr('اتركه كما هو إن لم ترد تغييره', 'Leave unchanged if blank'),
-                      ),
+                      NativeIOSTextField(
+                      controller: bundle,
+                      placeholder: tr('معرّف الحزمة Bundle ID', 'Bundle Identifier'),
                     ),
                     const SizedBox(height: 10),
-                    TextField(
+                    NativeIOSTextField(
                       controller: name,
-                      decoration: InputDecoration(
-                        labelText: tr('اسم التطبيق', 'Display Name'),
-                        hintText: tr('اسم التطبيق بعد التوقيع', 'App name after signing'),
-                      ),
+                      placeholder: tr('اسم التطبيق', 'Display Name'),
                     ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        Expanded(child: TextField(controller: version, decoration: InputDecoration(labelText: tr('الإصدار', 'Version')))),
+                        Expanded(child: NativeIOSTextField(controller: version, placeholder: tr('الإصدار', 'Version'))),
                         const SizedBox(width: 10),
-                        Expanded(child: TextField(controller: buildCtrl, decoration: InputDecoration(labelText: tr('البناء', 'Build')))),
+                        Expanded(child: NativeIOSTextField(controller: buildCtrl, placeholder: tr('البناء', 'Build'))),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -927,30 +911,22 @@ class _SignScreenState extends State<SignScreen> {
               ],
             ),
           ),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: selected ? Theme.of(context).colorScheme.primary : const Color(0xFFD8C29D),
-              foregroundColor: selected ? Theme.of(context).colorScheme.onPrimary : Colors.black87,
-            ),
+          NativeIOSButton(
+            title: selected ? tr('تم الاختيار', 'Selected') : tr('اختيار', 'Choose'),
+            systemImage: selected ? 'checkmark.circle.fill' : 'folder.fill',
             onPressed: action,
-            icon: Icon(selected ? CupertinoIcons.checkmark_circle_fill : CupertinoIcons.folder_fill, size: 18),
-            label: Text(selected ? tr('تم الاختيار', 'Selected') : tr('اختيار', 'Choose')),
+            prominent: selected,
+            width: 116,
+            height: 42,
           ),
           if (selected && onClear != null) ...[
             const SizedBox(width: 7),
-            SizedBox(
+            NativeIOSButton(
+              title: '',
+              systemImage: 'xmark',
+              onPressed: () => onClear(),
               width: 42,
               height: 42,
-              child: FilledButton.tonal(
-                style: FilledButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  backgroundColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: .09),
-                  foregroundColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: .78),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-                ),
-                onPressed: () => onClear(),
-                child: const Icon(CupertinoIcons.xmark, size: 18),
-              ),
             ),
           ],
         ],

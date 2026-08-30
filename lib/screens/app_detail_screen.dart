@@ -5,6 +5,7 @@ import '../models/sign_models.dart';
 import '../services/app_download_manager.dart';
 import '../services/localized.dart';
 import '../widgets/app_notice.dart';
+import '../widgets/native_material_controls.dart';
 
 class AppDetailScreen extends StatefulWidget {
   final RemoteApp app;
@@ -259,9 +260,9 @@ class _Header extends StatelessWidget {
                 if (state.downloading)
                   _ProgressPauseButton(state: state, onTap: onTogglePause)
                 else if (state.stage == 'signing' || state.stage == 'installing')
-                  FilledButton(
+                  NativeCompatFilledButton(
                     onPressed: null,
-                    style: FilledButton.styleFrom(minimumSize: const Size(120, 38), padding: const EdgeInsets.symmetric(horizontal: 18), shape: const StadiumBorder()),
+                    style: NativeCompatFilledButton.styleFrom(minimumSize: const Size(120, 38), padding: const EdgeInsets.symmetric(horizontal: 18), shape: const StadiumBorder()),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
                       const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
                       const SizedBox(width: 7),
@@ -269,15 +270,15 @@ class _Header extends StatelessWidget {
                     ]),
                   )
                 else if (state.file != null)
-                  FilledButton(
+                  NativeCompatFilledButton(
                     onPressed: onSign,
-                    style: FilledButton.styleFrom(backgroundColor: Colors.grey.shade600, foregroundColor: Colors.white, minimumSize: const Size(92, 38), padding: const EdgeInsets.symmetric(horizontal: 23), shape: const StadiumBorder()),
+                    style: NativeCompatFilledButton.styleFrom(backgroundColor: Colors.grey.shade600, foregroundColor: Colors.white, minimumSize: const Size(92, 38), padding: const EdgeInsets.symmetric(horizontal: 23), shape: const StadiumBorder()),
                     child: Text(tr('توقيع', 'Sign'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
                   )
                 else
-                  FilledButton(
+                  NativeCompatFilledButton(
                     onPressed: onDownload,
-                    style: FilledButton.styleFrom(minimumSize: const Size(92, 38), padding: const EdgeInsets.symmetric(horizontal: 23), shape: const StadiumBorder()),
+                    style: NativeCompatFilledButton.styleFrom(minimumSize: const Size(92, 38), padding: const EdgeInsets.symmetric(horizontal: 23), shape: const StadiumBorder()),
                     child: Text(tr('تنزيل', 'GET'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
                   ),
               ],

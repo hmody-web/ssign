@@ -8,6 +8,8 @@ import '../services/ipa_library_service.dart';
 import '../services/signing_service.dart';
 import '../services/localized.dart';
 import '../widgets/glass_card.dart';
+import '../widgets/native_material_controls.dart';
+import '../widgets/native_ios_controls.dart';
 
 const Map<String, String> _adminCategoryAr = {
   'games': 'ألعاب',
@@ -137,20 +139,21 @@ class _AdminGateScreenState extends State<AdminGateScreen> {
                 ),
                 if (!_paired) ...[
                   const SizedBox(height: 22),
-                  TextField(controller: _user, textInputAction: TextInputAction.next, decoration: _dec('اسم مستخدم لوحة الخادم', CupertinoIcons.person_fill)),
+                  NativeIOSTextField(controller: _user, placeholder: 'اسم مستخدم لوحة الخادم', leadingSystemImage: 'person.fill'),
                   const SizedBox(height: 12),
-                  TextField(controller: _pass, obscureText: true, onSubmitted: (_) => _pair(), decoration: _dec('كلمة المرور', CupertinoIcons.lock_fill)),
+                  NativeIOSTextField(controller: _pass, obscureText: true, onSubmitted: (_) => _pair(), placeholder: 'كلمة المرور', leadingSystemImage: 'lock.fill'),
                 ],
                 if (_error != null) ...[
                   const SizedBox(height: 14),
                   Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.red.withValues(alpha: .10), borderRadius: BorderRadius.circular(14)), child: Text(_error!, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700))),
                 ],
                 const SizedBox(height: 18),
-                FilledButton.icon(
+                NativeIOSButton(
+                  title: _loading ? tr('جاري التحقق…', 'Verifying…') : (_paired ? tr('تحقق وافتح اللوحة', 'Verify & open') : tr('ربط هذا الجهاز', 'Pair this device')),
+                  systemImage: _paired ? 'touchid' : 'link',
                   onPressed: _loading ? null : (_paired ? _enter : _pair),
-                  icon: _loading ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Icon(_paired ? Icons.fingerprint : CupertinoIcons.link),
-                  label: Text(_paired ? tr('تحقق وافتح اللوحة', 'Verify & open') : tr('ربط هذا الجهاز', 'Pair this device')),
-                  style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17))),
+                  prominent: true,
+                  height: 54,
                 ),
               ]),
             ),
@@ -176,6 +179,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   AdminDashboardData? _data;
   bool _loading = true;
   String _query = '';
+  final _queryController = TextEditingController();
   String? _error;
   List<String> _boomaCategories = const [];
 
@@ -208,7 +212,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Future<void> _delete(AdminApp app) async {
     final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
       title: const Text('حذف التطبيق؟'), content: Text('سيتم حذف ${app.name} وملف IPA نهائيًا من الخادم.'),
-      actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('حذف'))],
+      actions: [NativeCompatTextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')), NativeCompatFilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('حذف'))],
     ));
     if (ok != true) return;
     try { await AdminService.instance.deleteApp(app.id); await _load(); }
@@ -226,9 +230,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         appBar: AppBar(
           title: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('مكتبة السراي', style: TextStyle(fontWeight: FontWeight.w900)), Text('لوحة الإدارة الآمنة', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500))]),
           backgroundColor: Colors.transparent, scrolledUnderElevation: 0,
-          actions: [IconButton(onPressed: _load, icon: const Icon(CupertinoIcons.refresh)), const SizedBox(width: 6)],
+          actions: [NativeCompatIconButton(onPressed: _load, icon: const Icon(CupertinoIcons.refresh)), const SizedBox(width: 6)],
         ),
-        floatingActionButton: FloatingActionButton.extended(onPressed: () => _openForm(), icon: const Icon(CupertinoIcons.add), label: const Text('إضافة تطبيق')),
+        floatingActionButton: NativeIOSButton(title: 'إضافة تطبيق', systemImage: 'plus', onPressed: () => _openForm(), prominent: true, width: 150, height: 50),
         body: RefreshIndicator(
           onRefresh: _load,
           child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 110), children: [
@@ -239,7 +243,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               Expanded(child: _stat('المساحة', _size(_data!.bytes), Icons.storage_rounded)),
             ]),
             const SizedBox(height: 14),
-            TextField(onChanged: (v) => setState(() => _query = v), decoration: InputDecoration(prefixIcon: const Icon(CupertinoIcons.search), hintText: 'ابحث بالاسم أو المطور أو Bundle ID', filled: true, border: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide.none))),
+            NativeIOSTextField(controller: _queryController, onChanged: (v) => setState(() => _query = v), placeholder: 'ابحث بالاسم أو المطور أو Bundle ID', leadingSystemImage: 'magnifyingglass'),
             const SizedBox(height: 14),
             if (_loading) const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator()))
             else if (_error != null) _errorCard(_error!)
@@ -368,7 +372,7 @@ class _AdminAppFormScreenState extends State<AdminAppFormScreen> {
       _field(_bundle, 'Bundle ID'), const SizedBox(height: 10),
       Row(children: [Expanded(child: _field(_version, 'الإصدار')), const SizedBox(width: 10), Expanded(child: _field(_build, 'Build'))]), const SizedBox(height: 10),
       _categorySelector(), const SizedBox(height: 10),
-      TextField(controller: _description, minLines: 4, maxLines: 7, decoration: _dec('الوصف')), const SizedBox(height: 15),
+      NativeIOSTextField(controller: _description, placeholder: 'الوصف', maxLines: 6, height: 120), const SizedBox(height: 15),
       Row(children: [Expanded(child: _picker('أيقونة التطبيق', _iconPath != null ? 'صورة مخصصة ✓' : (_extractedIconUrl != null ? 'مستخرجة تلقائيًا • اضغط للتغيير' : 'اختيار صورة'), CupertinoIcons.photo_fill, _pickIcon)), const SizedBox(width: 10), Expanded(child: _picker('المعاينات', (_shots.isEmpty && _existingShots.isEmpty) ? 'اختيار صور' : '${_shots.length + _existingShots.length} صور ✓', CupertinoIcons.rectangle_stack_fill, _pickShots))]),
       if (_iconPath != null || _extractedIconUrl != null) ...[
         const SizedBox(height: 12),
@@ -387,7 +391,7 @@ class _AdminAppFormScreenState extends State<AdminAppFormScreen> {
       ]))],
       if (_error != null) ...[const SizedBox(height: 14), Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.red.withValues(alpha: .1), borderRadius: BorderRadius.circular(14)), child: Text(_error!, style: const TextStyle(color: Colors.red)))],
       const SizedBox(height: 18),
-      FilledButton.icon(onPressed: _busy ? null : _save, icon: const Icon(CupertinoIcons.cloud_upload_fill), label: Text(widget.app == null ? 'رفع وإضافة التطبيق' : 'حفظ التعديلات'), style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)))),
+      NativeIOSButton(title: widget.app == null ? 'رفع وإضافة التطبيق' : 'حفظ التعديلات', systemImage: 'icloud.and.arrow.up.fill', onPressed: _busy ? null : _save, prominent: true, height: 56),
     ]),
   );
 
@@ -491,7 +495,7 @@ class _AdminAppFormScreenState extends State<AdminAppFormScreen> {
     );
   }
 
-  Widget _field(TextEditingController c, String h) => TextField(controller: c, decoration: _dec(h));
+  Widget _field(TextEditingController c, String h) => NativeIOSTextField(controller: c, placeholder: h);
   InputDecoration _dec(String h) => InputDecoration(labelText: h, filled: true, border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none));
   Widget _picker(String t, String s, IconData i, VoidCallback tap) => Material(color: Colors.transparent, child: InkWell(onTap: _busy ? null : tap, borderRadius: BorderRadius.circular(20), child: GlassCard(padding: const EdgeInsets.all(14), child: Row(children: [Container(width: 44, height: 44, decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary.withValues(alpha: .12), borderRadius: BorderRadius.circular(14)), child: Icon(i, color: Theme.of(context).colorScheme.primary)), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(t, style: const TextStyle(fontWeight: FontWeight.w900)), Text(s, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5)))])), const Icon(CupertinoIcons.chevron_forward, size: 16)]))));
 }

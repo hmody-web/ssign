@@ -43,7 +43,7 @@ class _HomeShellState extends State<HomeShell> {
   Future<dynamic> _handleNativeTabCall(MethodCall call) async {
     if (call.method == 'onTabSelected') {
       final page = call.arguments as int?;
-      if (page != null) _goToPage(page);
+      if (page != null) _goToPage(page, animate: false);
     }
     return null;
   }
@@ -62,7 +62,7 @@ class _HomeShellState extends State<HomeShell> {
     _nativeTabChannel.invokeMethod<void>('setSelectedIndex', page).catchError((_) {});
   }
 
-  void _goToPage(int page) {
+  void _goToPage(int page, {bool animate = true}) {
     if (page < 0 || page > 3) return;
     if (page == index) {
       final ctx = _topKeys[page].currentContext;
@@ -77,11 +77,20 @@ class _HomeShellState extends State<HomeShell> {
       _syncNativeSelection(page);
       return;
     }
-    _pageController.animateToPage(
-      page,
-      duration: const Duration(milliseconds: 360),
-      curve: Curves.easeOutCubic,
-    );
+    // A system tab selection should commit immediately. Animating a PageView
+    // through intermediate pages made UIKit briefly receive an old selection,
+    // which looked like the selected Liquid Glass item jumped backwards.
+    if (index != page) setState(() => index = page);
+    _syncNativeSelection(page);
+    if (animate) {
+      _pageController.animateToPage(
+        page,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    } else {
+      _pageController.jumpToPage(page);
+    }
   }
 
   @override

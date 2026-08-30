@@ -7,6 +7,7 @@ import '../services/localized.dart';
 import '../services/signing_service.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
+import '../widgets/native_ios_controls.dart';
 import 'certificates_screen.dart';
 import 'admin_screen.dart';
 
@@ -232,53 +233,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
-  }) {
-    final primary = Theme.of(context).colorScheme.primary;
-    final onSurface = Theme.of(context).colorScheme.onSurface;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-      decoration: BoxDecoration(
-        color: selected ? primary.withValues(alpha: .14) : onSurface.withValues(alpha: .035),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: selected ? primary.withValues(alpha: .55) : onSurface.withValues(alpha: .08), width: selected ? 1.4 : 1),
-        boxShadow: selected ? [BoxShadow(color: primary.withValues(alpha: .13), blurRadius: 18, offset: const Offset(0, 7))] : null,
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 14),
-            child: Row(children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: selected ? primary : onSurface.withValues(alpha: .07),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, size: 19, color: selected ? Colors.white : onSurface.withValues(alpha: .72)),
-              ),
-              const SizedBox(width: 10),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5, color: selected ? primary : onSurface)),
-                const SizedBox(height: 2),
-                Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, color: onSurface.withValues(alpha: .45))),
-              ])),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                child: selected
-                    ? Icon(CupertinoIcons.checkmark_circle_fill, key: const ValueKey(true), color: primary, size: 21)
-                    : Icon(CupertinoIcons.circle, key: const ValueKey(false), color: onSurface.withValues(alpha: .22), size: 21),
-              ),
-            ]),
-          ),
-        ),
-      ),
-    );
-  }
+  }) => NativeIOSButton(
+        title: title,
+        systemImage: selected ? 'checkmark.circle.fill' : null,
+        onPressed: onTap,
+        prominent: selected,
+        height: 54,
+      );
 
   Widget _tileIcon(BuildContext context, IconData icon) => Container(
         width: 46,

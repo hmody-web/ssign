@@ -14,6 +14,9 @@ import '../services/ipa_library_service.dart';
 import '../services/localized.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
+import '../widgets/native_material_controls.dart';
+import '../widgets/native_ios_controls.dart';
+import 'package:flutter/services.dart';
 import 'app_detail_screen.dart';
 
 
@@ -66,6 +69,7 @@ class AppsScreen extends StatefulWidget {
 }
 
 class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMixin {
+  static const _nativeAppSheetChannel = MethodChannel('booma/native_app_sheet_channel');
   static const _pageSize = 30;
   static const _cacheKey = 'ipa.library.cache.v3.merged';
   static const _cacheSyncKey = 'ipa.library.cache.synced.v3.merged';
@@ -128,6 +132,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    if (Platform.isIOS) _nativeAppSheetChannel.setMethodCallHandler(_handleNativeSheetAction);
     AdminService.instance.deletedAppId.addListener(_onAdminDeletedApp);
     _restoreThenLoad();
     _syncTimer = Timer.periodic(_syncEvery, (_) => _syncIncrementally());
@@ -136,6 +141,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   @override
   void dispose() {
     _syncTimer?.cancel();
+    if (Platform.isIOS) _nativeAppSheetChannel.setMethodCallHandler(null);
     AdminService.instance.deletedAppId.removeListener(_onAdminDeletedApp);
     _searchDebounce?.cancel();
     _searchController.dispose();
@@ -358,17 +364,53 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     }
   }
 
+  Future<dynamic> _handleNativeSheetAction(MethodCall call) async {
+    if (call.method != 'action' || call.arguments is! Map) return null;
+    final args = Map<String, dynamic>.from(call.arguments as Map);
+    final id = args['id']?.toString() ?? '';
+    final action = args['action']?.toString() ?? '';
+    RemoteApp? app;
+    for (final candidate in _apps) { if (candidate.id == id) { app = candidate; break; } }
+    if (app == null) return null;
+    final state = _downloads.stateFor(app);
+    if (action == 'download') { await _startDownload(app); }
+    else if (action == 'pause') { _downloads.togglePause(app); }
+    else if (action == 'sign' && state.file != null) { widget.onSignRequested?.call(state.file!); }
+    return null;
+  }
+
+  Map<String, dynamic> _nativeAppPayload(RemoteApp app) {
+    final state = _downloads.stateFor(app);
+    String sizeText = '';
+    if (app.size >= 1024 * 1024 * 1024) sizeText = '${(app.size / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
+    else if (app.size >= 1024 * 1024) sizeText = '${(app.size / 1024 / 1024).toStringAsFixed(0)} MB';
+    else if (app.size > 0) sizeText = '${(app.size / 1024).toStringAsFixed(0)} KB';
+    final appMap = <String, dynamic>{
+      'id': app.id, 'name': app.name, 'displayName': app.displayName(_store.isArabic),
+      'displaySubtitle': app.displaySubtitle(_store.isArabic), 'iconUrl': app.iconUrl,
+      'version': app.version, 'category': app.category, 'categoryDisplay': _categoryDisplay(app.category, _store.isArabic),
+      'developerName': app.developerName, 'screenshots': app.screenshots,
+      'meta': [if (app.version.isNotEmpty) 'v${app.version}', if (sizeText.isNotEmpty) sizeText, if (app.category.isNotEmpty) _categoryDisplay(app.category, _store.isArabic)].join(' • '),
+    };
+    return {
+      'app': appMap,
+      'state': {
+        'downloading': state.downloading, 'paused': state.paused, 'progress': state.progress,
+        'stage': state.stage, 'hasFile': state.file != null,
+      },
+      'isArabic': _store.isArabic,
+    };
+  }
+
   void _openDetails(RemoteApp app) {
-    Navigator.of(context).push(
-      CupertinoPageRoute(
-        builder: (_) => AppDetailScreen(
-          app: app,
-          isArabic: _store.isArabic,
-          libraryApps: List<RemoteApp>.unmodifiable(_apps),
-          onSign: (file) => widget.onSignRequested?.call(file),
-        ),
-      ),
-    );
+    if (Platform.isIOS) {
+      _nativeAppSheetChannel.invokeMethod<void>('presentAppSheet', _nativeAppPayload(app));
+      return;
+    }
+    Navigator.of(context).push(CupertinoPageRoute(builder: (_) => AppDetailScreen(
+      app: app, isArabic: _store.isArabic, libraryApps: List<RemoteApp>.unmodifiable(_apps),
+      onSign: (file) => widget.onSignRequested?.call(file),
+    )));
   }
 
   String _friendlyError(Object e) {
@@ -458,25 +500,13 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
                         ? const SizedBox(height: 14)
                         : Padding(
                             padding: const EdgeInsets.only(top: 16, bottom: 4),
-                            child: TextField(
+                            child: NativeIOSTextField(
                               controller: _searchController,
                               autofocus: true,
                               onChanged: _onSearchChanged,
-                              textInputAction: TextInputAction.search,
-                              decoration: InputDecoration(
-                                hintText: tr('ابحث باسم التطبيق أو المطور...', 'Search apps or developers...'),
-                                prefixIcon: const Icon(CupertinoIcons.search),
-                                suffixIcon: _searchController.text.isEmpty
-                                    ? null
-                                    : IconButton(
-                                        onPressed: () {
-                                          _searchController.clear();
-                                          _runSearch();
-                                          setState(() {});
-                                        },
-                                        icon: const Icon(CupertinoIcons.xmark_circle_fill),
-                                      ),
-                              ),
+                              placeholder: tr('ابحث باسم التطبيق أو المطور...', 'Search apps or developers...'),
+                              leadingSystemImage: 'magnifyingglass',
+                              height: 48,
                             ),
                           ),
                   ),
@@ -485,12 +515,19 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
                     _FeaturedCarousel(apps: featured, isArabic: isArabic, onTap: _openDetails),
                     const SizedBox(height: 16),
                     if (_categories.isNotEmpty)
-                      _CategoryShelf(
-                        categories: _categories,
-                        isArabic: isArabic,
-                        selected: _selectedCategory,
-                        onChanged: (value) => setState(() => _selectedCategory = value),
-                      ),
+                      Platform.isIOS
+                          ? NativeIOSCategories(
+                              values: _categories,
+                              labels: _categories.map((e) => _categoryDisplay(e, isArabic)).toList(),
+                              selected: _selectedCategory,
+                              onChanged: (value) => setState(() => _selectedCategory = value),
+                            )
+                          : _CategoryShelf(
+                              categories: _categories,
+                              isArabic: isArabic,
+                              selected: _selectedCategory,
+                              onChanged: (value) => setState(() => _selectedCategory = value),
+                            ),
                     const SizedBox(height: 22),
                     _AppsSectionDivider(title: tr('التطبيقات', 'Apps')),
                     const SizedBox(height: 12),
@@ -516,7 +553,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
                       const SizedBox(height: 12),
                       Text(tr('تعذر تحميل مكتبة التطبيقات', 'Could not load the app library'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
                       const SizedBox(height: 14),
-                      FilledButton.tonal(onPressed: _loadInitial, child: Text(tr('إعادة المحاولة', 'Retry'))),
+                      NativeIOSButton(title: tr('إعادة المحاولة', 'Retry'), systemImage: 'arrow.clockwise', onPressed: _loadInitial, prominent: true, width: 150),
                     ],
                   ),
                 ),
@@ -540,14 +577,21 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
                       animation: _downloads,
                       builder: (context, _) {
                         final state = _downloads.stateFor(app);
+                        if (Platform.isIOS) {
+                          final payload = _nativeAppPayload(app);
+                          return NativeIOSAppCard(
+                            app: Map<String, dynamic>.from(payload['app'] as Map),
+                            downloadState: Map<String, dynamic>.from(payload['state'] as Map),
+                            onDownload: () => _startDownload(app),
+                            onPause: () => _downloads.togglePause(app),
+                            onSign: state.file == null ? null : () => widget.onSignRequested?.call(state.file!),
+                            onTap: () => _openDetails(app),
+                          );
+                        }
                         return _AppCard(
-                          app: app,
-                          isArabic: isArabic,
-                          state: state,
-                          onDownload: () => _startDownload(app),
-                          onTogglePause: () => _downloads.togglePause(app),
-                          onSign: (file) => widget.onSignRequested?.call(file),
-                          onTap: () => _openDetails(app),
+                          app: app, isArabic: isArabic, state: state,
+                          onDownload: () => _startDownload(app), onTogglePause: () => _downloads.togglePause(app),
+                          onSign: (file) => widget.onSignRequested?.call(file), onTap: () => _openDetails(app),
                         );
                       },
                     ),
@@ -1012,9 +1056,9 @@ class _DownloadAction extends StatelessWidget {
     }
 
     if (state.stage == 'signing' || state.stage == 'installing') {
-      return FilledButton(
+      return NativeCompatFilledButton(
         onPressed: null,
-        style: FilledButton.styleFrom(minimumSize: const Size(104, 36), padding: const EdgeInsets.symmetric(horizontal: 14), shape: const StadiumBorder()),
+        style: NativeCompatFilledButton.styleFrom(minimumSize: const Size(104, 36), padding: const EdgeInsets.symmetric(horizontal: 14), shape: const StadiumBorder()),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
           const SizedBox(width: 7),
@@ -1024,16 +1068,16 @@ class _DownloadAction extends StatelessWidget {
     }
 
     if (state.file != null) {
-      return FilledButton(
+      return NativeCompatFilledButton(
         onPressed: onSign,
-        style: FilledButton.styleFrom(backgroundColor: Colors.grey.shade600, foregroundColor: Colors.white, minimumSize: const Size(82, 36), padding: const EdgeInsets.symmetric(horizontal: 18), shape: const StadiumBorder()),
+        style: NativeCompatFilledButton.styleFrom(backgroundColor: Colors.grey.shade600, foregroundColor: Colors.white, minimumSize: const Size(82, 36), padding: const EdgeInsets.symmetric(horizontal: 18), shape: const StadiumBorder()),
         child: Text(tr('توقيع', 'Sign'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
       );
     }
 
-    return FilledButton(
+    return NativeCompatFilledButton(
       onPressed: onDownload,
-      style: FilledButton.styleFrom(minimumSize: const Size(82, 36), padding: const EdgeInsets.symmetric(horizontal: 18), shape: const StadiumBorder()),
+      style: NativeCompatFilledButton.styleFrom(minimumSize: const Size(82, 36), padding: const EdgeInsets.symmetric(horizontal: 18), shape: const StadiumBorder()),
       child: Text(tr('تنزيل', 'GET'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
     );
   }

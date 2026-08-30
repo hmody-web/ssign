@@ -13,6 +13,7 @@ import '../services/localized.dart';
 import '../services/persistent_path_service.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
+import '../widgets/native_material_controls.dart';
 import 'signed_files_screen.dart';
 import 'folders_screen.dart';
 
@@ -265,7 +266,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         ],
                       ),
                     ),
-                    IconButton(
+                    NativeCompatIconButton(
                       onPressed: () => Navigator.pop(ctx),
                       icon: const Icon(CupertinoIcons.xmark_circle_fill),
                     ),
@@ -430,7 +431,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         ],
                       ),
                     ),
-                    IconButton.filledTonal(
+                    NativeCompatIconButton.filledTonal(
                       onPressed: _import,
                       icon: ClipOval(
                         child: Image.asset(
@@ -463,7 +464,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           ],
                         ),
                       ),
-                      FilledButton(onPressed: _import, child: Text(tr('استيراد', 'Import'))),
+                      NativeCompatFilledButton(onPressed: _import, child: Text(tr('استيراد', 'Import'))),
                     ],
                   ),
                 ),
@@ -567,7 +568,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   child: Row(
                     children: [
                       Expanded(
-                        child: FilledButton.tonalIcon(
+                        child: NativeCompatFilledButton.tonalIcon(
                           onPressed: () => setState(() {
                             if (selected.length == store.importedFiles.length) {
                               selected.clear();
@@ -580,20 +581,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      IconButton.filledTonal(
+                      NativeCompatIconButton.filledTonal(
                         tooltip: tr('نقل', 'Move'),
                         onPressed: selected.isEmpty ? null : () => _copyOrMoveFiles(store.importedFiles.where((f) => selected.contains(f.id)).toList(), move: true),
                         icon: const Icon(CupertinoIcons.arrow_right_arrow_left),
                       ),
                       const SizedBox(width: 6),
-                      IconButton.filledTonal(
+                      NativeCompatIconButton.filledTonal(
                         tooltip: tr('نسخ', 'Copy'),
                         onPressed: selected.isEmpty ? null : () => _copyOrMoveFiles(store.importedFiles.where((f) => selected.contains(f.id)).toList(), move: false),
                         icon: const Icon(CupertinoIcons.doc_on_doc),
                       ),
                       const SizedBox(width: 8),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+                      NativeCompatFilledButton.icon(
+                        style: NativeCompatFilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
                         onPressed: selected.isEmpty ? null : _deleteSelected,
                         icon: const Icon(CupertinoIcons.trash),
                         label: Text(selected.isEmpty ? tr('حذف', 'Delete') : '${tr('حذف', 'Delete')} (${selected.length})'),
@@ -659,9 +660,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 ),
                               ),
                               if (!selecting)
-                                FilledButton(
+                                NativeCompatFilledButton(
                                   onPressed: () => _showFileActions(f),
-                                  style: FilledButton.styleFrom(
+                                  style: NativeCompatFilledButton.styleFrom(
                                     minimumSize: const Size(76, 34),
                                     padding: const EdgeInsets.symmetric(horizontal: 13),
                                     backgroundColor: Theme.of(context).colorScheme.primary,
@@ -738,7 +739,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         ],
                       ),
                     ),
-                    IconButton(
+                    NativeCompatIconButton(
                       onPressed: () => Navigator.pop(ctx),
                       icon: const Icon(CupertinoIcons.xmark_circle_fill),
                     ),
@@ -850,9 +851,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ),
             const SizedBox(width: 12),
             if (processing)
-              FilledButton(
+              NativeCompatFilledButton(
                 onPressed: null,
-                style: FilledButton.styleFrom(
+                style: NativeCompatFilledButton.styleFrom(
                   minimumSize: const Size(108, 38),
                   padding: const EdgeInsets.symmetric(horizontal: 13),
                   shape: const StadiumBorder(),

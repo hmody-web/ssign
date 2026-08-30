@@ -9,6 +9,8 @@ import '../models/sign_models.dart';
 import 'sign_screen.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
+import '../widgets/native_material_controls.dart';
+import '../widgets/native_ios_controls.dart';
 
 class FoldersScreen extends StatefulWidget {
   final String initialRelativePath;
@@ -47,7 +49,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
         title: Text(tr('إنشاء مجلد', 'New folder')),
         content: Padding(
           padding: const EdgeInsets.only(top: 10),
-          child: CupertinoTextField(controller: ctrl, placeholder: tr('اسم المجلد', 'Folder name'), autofocus: true),
+          child: NativeIOSTextField(controller: ctrl, placeholder: tr('اسم المجلد', 'Folder name'), autofocus: true),
         ),
         actions: [
           CupertinoDialogAction(onPressed: () => Navigator.pop(ctx), child: Text(tr('إلغاء', 'Cancel'))),
@@ -108,9 +110,9 @@ class _FoldersScreenState extends State<FoldersScreen> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Row(children: [
-                          if (current.isNotEmpty) IconButton(onPressed: () { current = p.dirname(current) == '.' ? '' : p.dirname(current); setSheetState((){}); }, icon: const Icon(CupertinoIcons.chevron_back)),
+                          if (current.isNotEmpty) NativeCompatIconButton(onPressed: () { current = p.dirname(current) == '.' ? '' : p.dirname(current); setSheetState((){}); }, icon: const Icon(CupertinoIcons.chevron_back)),
                           Expanded(child: Text(tr(titleAr, titleEn), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800))),
-                          TextButton(onPressed: () => Navigator.pop(ctx, current), child: Text(tr('اختيار هنا', 'Choose here'))),
+                          NativeCompatTextButton(onPressed: () => Navigator.pop(ctx, current), child: Text(tr('اختيار هنا', 'Choose here'))),
                         ]),
                         const SizedBox(height: 8),
                         Expanded(
@@ -273,8 +275,8 @@ class _FoldersScreenState extends State<FoldersScreen> {
       appBar: AppBar(
         title: Text(relativePath.isEmpty ? tr('المجلدات', 'Folders') : p.basename(relativePath)),
         actions: [
-          IconButton(onPressed: _createFolder, icon: const Icon(CupertinoIcons.folder_badge_plus)),
-          IconButton(onPressed: _addFiles, icon: const Icon(CupertinoIcons.add_circled)),
+          NativeCompatIconButton(onPressed: _createFolder, icon: const Icon(CupertinoIcons.folder_badge_plus)),
+          NativeCompatIconButton(onPressed: _addFiles, icon: const Icon(CupertinoIcons.add_circled)),
         ],
       ),
       body: loading
@@ -303,7 +305,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
                               : Icon(isApp ? CupertinoIcons.app_badge : isDir ? CupertinoIcons.folder_fill : CupertinoIcons.doc_fill, color: Theme.of(context).colorScheme.primary),
                       title: Text(isApp && appName != null && appName.trim().isNotEmpty ? appName : p.basename(e.path), maxLines: 1, overflow: TextOverflow.ellipsis),
                       subtitle: isApp ? Text(p.basename(e.path), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .45))) : null,
-                      trailing: IconButton(icon: const Icon(CupertinoIcons.ellipsis), onPressed: () => _actions(e)),
+                      trailing: NativeCompatIconButton(icon: const Icon(CupertinoIcons.ellipsis), onPressed: () => _actions(e)),
                       onTap: isDir
                           ? () => Navigator.push(context, CupertinoPageRoute(builder: (_) => FoldersScreen(initialRelativePath: relativePath.isEmpty ? p.basename(e.path) : p.join(relativePath, p.basename(e.path)))))
                           : () => _actions(e),
@@ -339,7 +341,7 @@ class _ImagePreviewPage extends StatelessWidget {
           foregroundColor: Colors.white,
           title: Text(p.basename(file.path), maxLines: 1, overflow: TextOverflow.ellipsis),
           actions: [
-            IconButton(
+            NativeCompatIconButton(
               tooltip: tr('حفظ', 'Save'),
               onPressed: () async {
                 try {
@@ -351,7 +353,7 @@ class _ImagePreviewPage extends StatelessWidget {
               },
               icon: const Icon(CupertinoIcons.square_arrow_down),
             ),
-            IconButton(
+            NativeCompatIconButton(
               tooltip: tr('مشاركة', 'Share'),
               onPressed: () => signing.share(file.path),
               icon: const Icon(CupertinoIcons.share),
@@ -395,9 +397,9 @@ Future<String?> showFolderDestinationPicker(BuildContext context, {String? title
                   height: MediaQuery.sizeOf(ctx).height * .58,
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     Row(children: [
-                      if (current.isNotEmpty) IconButton(onPressed: () { current = p.dirname(current) == '.' ? '' : p.dirname(current); setSheetState(() {}); }, icon: const Icon(CupertinoIcons.chevron_back)),
+                      if (current.isNotEmpty) NativeCompatIconButton(onPressed: () { current = p.dirname(current) == '.' ? '' : p.dirname(current); setSheetState(() {}); }, icon: const Icon(CupertinoIcons.chevron_back)),
                       Expanded(child: Text(title ?? tr('اختيار المجلد', 'Choose folder'), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800))),
-                      TextButton(onPressed: () => Navigator.pop(ctx, current), child: Text(tr('اختيار هنا', 'Choose here'))),
+                      NativeCompatTextButton(onPressed: () => Navigator.pop(ctx, current), child: Text(tr('اختيار هنا', 'Choose here'))),
                     ]),
                     const SizedBox(height: 8),
                     Expanded(child: dirs.isEmpty ? Center(child: Text(tr('لا توجد مجلدات داخل هذا المكان', 'No folders here'))) : ListView.separated(
