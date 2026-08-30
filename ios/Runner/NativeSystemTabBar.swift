@@ -523,7 +523,7 @@ private struct NativeAppSheetSwiftUIView: View {
     private var downloading: Bool { state["downloading"] as? Bool ?? false }
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     HStack(alignment: .top, spacing: 16) {
@@ -574,7 +574,7 @@ private struct NativeAppSheetSwiftUIView: View {
             .navigationTitle(name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button { dismiss() } label: { Image(systemName: isArabic ? "chevron.right" : "chevron.left") }
                         .modifier(NativeGlassButtonModifier())
                 }
