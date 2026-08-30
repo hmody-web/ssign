@@ -15,7 +15,6 @@ import '../services/ipa_library_service.dart';
 import '../services/localized.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
-import '../widgets/native_material_controls.dart';
 import '../widgets/native_ios_controls.dart';
 import 'package:flutter/services.dart';
 import 'app_detail_screen.dart';
@@ -526,6 +525,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
       child: CustomScrollView(
         key: const PageStorageKey('apps-scroll-view'),
         controller: _scrollController,
+        cacheExtent: 650,
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
         slivers: [
@@ -644,24 +644,6 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
                     child: _AppDownloadStateBuilder(
                       app: app,
                       builder: (context, state) {
-                        if (Platform.isIOS) {
-                          final payload = _nativeAppPayload(app);
-                          return NativeIOSAppCard(
-                            app: Map<String, dynamic>.from(payload['app'] as Map),
-                            downloadState: <String, dynamic>{
-                              'downloading': state.downloading,
-                              'paused': state.paused,
-                              'progress': state.progress,
-                              'stage': state.stage,
-                              'hasFile': state.file != null,
-                            },
-                            isArabic: isArabic,
-                            onDownload: () => _startDownload(app),
-                            onPause: () => _downloads.togglePause(app),
-                            onSign: state.file == null ? null : () => widget.onSignRequested?.call(state.file!),
-                            onTap: () => _openDetails(app),
-                          );
-                        }
                         return _AppCard(
                           app: app, isArabic: isArabic, state: state,
                           onDownload: () => _startDownload(app), onTogglePause: () => _downloads.togglePause(app),
@@ -1083,6 +1065,30 @@ class _AppDownloadStateBuilderState extends State<_AppDownloadStateBuilder> {
   Widget build(BuildContext context) => widget.builder(context, _state);
 }
 
+class _FastSystemAppCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  const _FastSystemAppCard({required this.child, this.padding = const EdgeInsets.all(13)});
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final bg = dark ? const Color(0xFF1C1C1E) : const Color(0xFFF2F2F7);
+    final border = dark ? Colors.white.withValues(alpha: .055) : Colors.black.withValues(alpha: .045);
+    return RepaintBoundary(
+      child: Container(
+        padding: padding,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: border, width: .6),
+        ),
+        child: child,
+      ),
+    );
+  }
+}
+
 class _AppCard extends StatelessWidget {
   final RemoteApp app;
   final bool isArabic;
@@ -1109,7 +1115,7 @@ class _AppCard extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
-      child: GlassCard(
+      child: _FastSystemAppCard(
         padding: const EdgeInsets.all(13),
         child: Row(
           children: [
@@ -1168,59 +1174,67 @@ class _DownloadAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
     if (state.downloading) {
       return SizedBox(
         width: 42,
         height: 42,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            SizedBox(
-              width: 39,
-              height: 39,
-              child: CircularProgressIndicator(value: state.progress, strokeWidth: 3.2, strokeCap: StrokeCap.round),
-            ),
-            Material(
-              color: Colors.transparent,
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: onPause,
-                child: SizedBox(
-                  width: 31,
-                  height: 31,
-                  child: Icon(state.paused ? CupertinoIcons.play_fill : CupertinoIcons.pause_fill, size: 15, color: Theme.of(context).colorScheme.primary),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onPause,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox(
+                width: 36,
+                height: 36,
+                child: CircularProgressIndicator(
+                  value: state.progress == null ? null : state.progress!.clamp(0, 1),
+                  strokeWidth: 2.7,
+                  strokeCap: StrokeCap.round,
+                  backgroundColor: primary.withValues(alpha: .16),
                 ),
               ),
-            ),
-          ],
+              Icon(
+                state.paused ? CupertinoIcons.play_fill : CupertinoIcons.stop_fill,
+                size: 11,
+                color: primary,
+              ),
+            ],
+          ),
         ),
       );
     }
 
     if (state.stage == 'signing' || state.stage == 'installing') {
-      return NativeCompatFilledButton(
+      return CupertinoButton.tinted(
         onPressed: null,
-        style: NativeCompatFilledButton.styleFrom(minimumSize: const Size(104, 36), padding: const EdgeInsets.symmetric(horizontal: 14), shape: const StadiumBorder()),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+          const CupertinoActivityIndicator(radius: 7),
           const SizedBox(width: 7),
-          Text(state.stage == 'signing' ? tr('جاري التوقيع', 'Signing') : tr('جاري التثبيت', 'Installing'), style: const TextStyle(fontWeight: FontWeight.w800)),
+          Text(state.stage == 'signing' ? tr('جاري التوقيع', 'Signing') : tr('جاري التثبيت', 'Installing')),
         ]),
       );
     }
 
     if (state.file != null) {
-      return NativeCompatFilledButton(
+      return CupertinoButton(
         onPressed: onSign,
-        style: NativeCompatFilledButton.styleFrom(backgroundColor: Colors.grey.shade600, foregroundColor: Colors.white, minimumSize: const Size(82, 36), padding: const EdgeInsets.symmetric(horizontal: 18), shape: const StadiumBorder()),
-        child: Text(tr('توقيع', 'Sign'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+        color: CupertinoColors.systemGrey.resolveFrom(context),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+        borderRadius: BorderRadius.circular(18),
+        minSize: 36,
+        child: Text(tr('توقيع', 'Sign'), style: const TextStyle(color: CupertinoColors.white, fontWeight: FontWeight.w700)),
       );
     }
 
-    return NativeCompatFilledButton(
+    return CupertinoButton.tinted(
       onPressed: onDownload,
-      style: NativeCompatFilledButton.styleFrom(minimumSize: const Size(82, 36), padding: const EdgeInsets.symmetric(horizontal: 18), shape: const StadiumBorder()),
-      child: Text(tr('تنزيل', 'GET'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+      borderRadius: BorderRadius.circular(18),
+      minSize: 36,
+      child: Text(tr('تنزيل', 'GET'), style: const TextStyle(fontWeight: FontWeight.w700)),
     );
   }
 }
@@ -1240,7 +1254,15 @@ class _NetworkAppIcon extends StatelessWidget {
           color: Theme.of(context).colorScheme.primary.withValues(alpha: .12),
           child: url.isEmpty
               ? Icon(CupertinoIcons.app_fill, color: Theme.of(context).colorScheme.primary, size: size * .48)
-              : Image.network(url, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Icon(CupertinoIcons.app_fill, color: Theme.of(context).colorScheme.primary, size: size * .48)),
+              : Image.network(
+                  url,
+                  fit: BoxFit.cover,
+                  cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round(),
+                  cacheHeight: (size * MediaQuery.devicePixelRatioOf(context)).round(),
+                  filterQuality: FilterQuality.low,
+                  gaplessPlayback: true,
+                  errorBuilder: (_, __, ___) => Icon(CupertinoIcons.app_fill, color: Theme.of(context).colorScheme.primary, size: size * .48),
+                ),
         ),
       );
 }
