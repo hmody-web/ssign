@@ -62,9 +62,10 @@ final class NativeSystemTabBarPlugin: NSObject, FlutterPlugin {
         let host = UIHostingController(rootView: view)
         host.modalPresentationStyle = .pageSheet
         if let sheet = host.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
+            sheet.detents = [.large()]
             sheet.prefersGrabberVisible = true
             sheet.prefersScrollingExpandsWhenScrolledToEdge = true
+            sheet.prefersEdgeAttachedInCompactHeight = true
         }
         presenter.present(host, animated: true)
     }
@@ -178,6 +179,7 @@ private enum NativeControlNames {
     static let textField = "booma/native_system_text_field"
     static let categories = "booma/native_system_categories"
     static let appCard = "booma/native_app_card"
+    static let featuredBanner = "booma/native_featured_banner"
 }
 
 extension NativeSystemTabBarPlugin {
@@ -186,6 +188,7 @@ extension NativeSystemTabBarPlugin {
         registrar.register(NativeSystemTextFieldFactory(messenger: registrar.messenger()), withId: NativeControlNames.textField)
         registrar.register(NativeSystemCategoriesFactory(messenger: registrar.messenger()), withId: NativeControlNames.categories)
         registrar.register(NativeAppCardFactory(messenger: registrar.messenger()), withId: NativeControlNames.appCard)
+        registrar.register(NativeFeaturedBannerFactory(messenger: registrar.messenger()), withId: NativeControlNames.featuredBanner)
     }
 }
 
@@ -341,37 +344,78 @@ private final class NativeSystemCategoriesFactory: NSObject, FlutterPlatformView
 }
 
 private final class NativeSystemCategoriesView: NSObject, FlutterPlatformView {
+    let root = UIView()
     let scroll = UIScrollView()
     let stack = UIStackView()
     let bridge: NativeControlBridge
     let selected: String?
+    let isArabic: Bool
     var values: [String] = []
 
     init(frame: CGRect, viewId: Int64, args: Any?, messenger: FlutterBinaryMessenger) {
         bridge = NativeControlBridge(messenger: messenger, viewId: viewId)
         let p = args as? [String: Any] ?? [:]
         selected = p["selected"] as? String
+        isArabic = p["isArabic"] as? Bool ?? true
         super.init()
         values = p["values"] as? [String] ?? []
         let labels = p["labels"] as? [String] ?? values
-        scroll.frame = frame
+
+        root.frame = frame
+        root.backgroundColor = .clear
+        root.clipsToBounds = true
+        root.semanticContentAttribute = isArabic ? .forceRightToLeft : .forceLeftToRight
+
+        scroll.frame = root.bounds
+        scroll.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         scroll.showsHorizontalScrollIndicator = false
+        scroll.showsVerticalScrollIndicator = false
+        scroll.alwaysBounceHorizontal = true
+        scroll.alwaysBounceVertical = false
+        scroll.directionalLockEnabled = true
+        scroll.delaysContentTouches = false
+        scroll.canCancelContentTouches = true
+        scroll.semanticContentAttribute = isArabic ? .forceRightToLeft : .forceLeftToRight
+
         stack.axis = .horizontal
         stack.spacing = 8
-        stack.alignment = .fill
+        stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.semanticContentAttribute = isArabic ? .forceRightToLeft : .forceLeftToRight
         scroll.addSubview(stack)
+        root.addSubview(scroll)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+            stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 2),
+            stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -2),
             stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             stack.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor)
         ])
-        addButton(title: NSLocalizedString("All", comment: ""), value: "", selected: self.selected == nil)
+
+        addButton(title: isArabic ? "الكل" : "All", value: "", selected: self.selected == nil || self.selected?.isEmpty == true)
         for (i, value) in values.enumerated() {
-            addButton(title: i < labels.count ? labels[i] : value, value: value, selected: value == self.selected)
+            let supplied = i < labels.count ? labels[i] : value
+            addButton(title: categoryLabel(raw: value, supplied: supplied), value: value, selected: value == self.selected)
         }
+    }
+
+    private func categoryLabel(raw: String, supplied: String) -> String {
+        guard isArabic else { return supplied }
+        // Keep Dart-provided Arabic labels, but also translate here so the native
+        // row can never fall back to English while the app language is Arabic.
+        if supplied.range(of: "[\\u{0600}-\\u{06FF}]", options: .regularExpression) != nil { return supplied }
+        let key = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let map: [String: String] = [
+            "games":"ألعاب", "game":"ألعاب", "social":"تواصل اجتماعي", "social networking":"تواصل اجتماعي",
+            "photo & video":"صور وفيديو", "photo":"صور", "video":"فيديو", "music":"موسيقى", "entertainment":"ترفيه",
+            "utilities":"أدوات", "utility":"أدوات", "tools":"أدوات", "business":"أعمال", "education":"تعليم",
+            "productivity":"إنتاجية", "finance":"مال وأعمال", "shopping":"تسوق", "lifestyle":"نمط حياة",
+            "health & fitness":"صحة ولياقة", "health":"صحة ولياقة", "sports":"رياضة", "travel":"سفر",
+            "navigation":"ملاحة", "news":"أخبار", "weather":"طقس", "food & drink":"طعام وشراب", "food":"طعام وشراب",
+            "books":"كتب", "reference":"مراجع", "medical":"طب", "developer tools":"أدوات المطور",
+            "graphics & design":"رسوم وتصميم"
+        ]
+        return map[key] ?? supplied
     }
 
     private func addButton(title: String, value: String, selected isSelected: Bool) {
@@ -384,11 +428,12 @@ private final class NativeSystemCategoriesView: NSObject, FlutterPlatformView {
         c.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14)
         b.configuration = c
         b.accessibilityIdentifier = value
+        b.semanticContentAttribute = isArabic ? .forceRightToLeft : .forceLeftToRight
         b.addTarget(self, action: #selector(tapped(_:)), for: .touchUpInside)
         stack.addArrangedSubview(b)
     }
     @objc private func tapped(_ sender: UIButton) { bridge.channel.invokeMethod("selected", arguments: sender.accessibilityIdentifier ?? "") }
-    func view() -> UIView { scroll }
+    func view() -> UIView { root }
 }
 
 private final class NativeAppCardFactory: NSObject, FlutterPlatformViewFactory {
@@ -400,18 +445,23 @@ private final class NativeAppCardFactory: NSObject, FlutterPlatformViewFactory {
     }
 }
 
-private final class NativeAppCardView: NSObject, FlutterPlatformView {
-    let root = UIControl()
+private final class NativeAppCardView: NSObject, FlutterPlatformView, UIGestureRecognizerDelegate {
+    let root = UIView()
     let bridge: NativeControlBridge
+    let action = UIButton(type: .system)
+    let isArabic: Bool
+
     init(frame: CGRect, viewId: Int64, args: Any?, messenger: FlutterBinaryMessenger) {
         bridge = NativeControlBridge(messenger: messenger, viewId: viewId)
-        super.init()
         let p = args as? [String: Any] ?? [:]
         let app = p["app"] as? [String: Any] ?? [:]
         let state = p["state"] as? [String: Any] ?? [:]
+        isArabic = p["isArabic"] as? Bool ?? true
+        super.init()
+
         root.frame = frame
         root.backgroundColor = .clear
-        root.addTarget(self, action: #selector(cardTapped), for: .touchUpInside)
+        root.semanticContentAttribute = isArabic ? .forceRightToLeft : .forceLeftToRight
 
         let background: UIVisualEffectView
         if #available(iOS 26.0, *) { background = UIVisualEffectView(effect: UIGlassEffect()) }
@@ -428,39 +478,38 @@ private final class NativeAppCardView: NSObject, FlutterPlatformView {
         icon.clipsToBounds = true
         icon.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.12)
         icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.isUserInteractionEnabled = false
         root.addSubview(icon)
-        if let urlString = app["iconUrl"] as? String, let url = URL(string: urlString), !urlString.isEmpty {
-            URLSession.shared.dataTask(with: url) { data, _, _ in
-                guard let data, let image = UIImage(data: data) else { return }
-                DispatchQueue.main.async { icon.image = image }
-            }.resume()
-        } else { icon.image = UIImage(systemName: "app.fill") }
+        loadImage(app["iconUrl"] as? String, into: icon)
 
         let name = UILabel()
         name.font = .preferredFont(forTextStyle: .headline)
         name.adjustsFontForContentSizeCategory = true
         name.text = app["displayName"] as? String ?? app["name"] as? String ?? ""
         name.numberOfLines = 1
+        name.textAlignment = isArabic ? .right : .left
 
         let subtitle = UILabel()
         subtitle.font = .preferredFont(forTextStyle: .caption1)
         subtitle.textColor = .secondaryLabel
         subtitle.text = app["displaySubtitle"] as? String ?? ""
         subtitle.numberOfLines = 1
+        subtitle.textAlignment = isArabic ? .right : .left
 
         let meta = UILabel()
         meta.font = .preferredFont(forTextStyle: .caption2)
         meta.textColor = .tertiaryLabel
         meta.text = app["meta"] as? String ?? ""
         meta.numberOfLines = 1
+        meta.textAlignment = isArabic ? .right : .left
 
         let labels = UIStackView(arrangedSubviews: [name, subtitle, meta])
         labels.axis = .vertical
         labels.spacing = 2
         labels.translatesAutoresizingMaskIntoConstraints = false
+        labels.isUserInteractionEnabled = false
         root.addSubview(labels)
 
-        let action = UIButton(type: .system)
         action.translatesAutoresizingMaskIntoConstraints = false
         let downloading = state["downloading"] as? Bool ?? false
         let paused = state["paused"] as? Bool ?? false
@@ -470,37 +519,221 @@ private final class NativeAppCardView: NSObject, FlutterPlatformView {
         if #available(iOS 26.0, *) { config = .prominentGlass() } else { config = .filled() }
         config.cornerStyle = .capsule
         if downloading {
-            config.title = paused ? "▶︎" : "Ⅱ"
+            config.title = paused ? (isArabic ? "استئناف" : "Resume") : (isArabic ? "إيقاف" : "Pause")
+            config.image = UIImage(systemName: paused ? "play.fill" : "pause.fill")
             action.accessibilityIdentifier = "pause"
         } else if stage == "signing" || stage == "installing" {
-            config.title = stage == "signing" ? "Signing…" : "Installing…"
+            config.title = stage == "signing" ? (isArabic ? "جارٍ التوقيع" : "Signing…") : (isArabic ? "جارٍ التثبيت" : "Installing…")
             action.isEnabled = false
         } else if hasFile {
-            config.title = "Sign"
+            config.title = isArabic ? "توقيع" : "Sign"
             action.accessibilityIdentifier = "sign"
         } else {
-            config.title = "GET"
+            config.title = isArabic ? "تنزيل" : "GET"
+            config.image = UIImage(systemName: "arrow.down.circle.fill")
             action.accessibilityIdentifier = "download"
         }
+        config.imagePadding = 5
         action.configuration = config
         action.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
         root.addSubview(action)
 
-        NSLayoutConstraint.activate([
-            background.leadingAnchor.constraint(equalTo: root.leadingAnchor), background.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            background.topAnchor.constraint(equalTo: root.topAnchor), background.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            icon.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12), icon.centerYAnchor.constraint(equalTo: root.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 62), icon.heightAnchor.constraint(equalToConstant: 62),
-            action.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12), action.centerYAnchor.constraint(equalTo: root.centerYAnchor),
-            action.widthAnchor.constraint(greaterThanOrEqualToConstant: 72), action.heightAnchor.constraint(equalToConstant: 40),
-            labels.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12), labels.trailingAnchor.constraint(lessThanOrEqualTo: action.leadingAnchor, constant: -10), labels.centerYAnchor.constraint(equalTo: root.centerYAnchor)
-        ])
+        if isArabic {
+            NSLayoutConstraint.activate([
+                background.leadingAnchor.constraint(equalTo: root.leadingAnchor), background.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+                background.topAnchor.constraint(equalTo: root.topAnchor), background.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+                icon.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12), icon.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+                icon.widthAnchor.constraint(equalToConstant: 62), icon.heightAnchor.constraint(equalToConstant: 62),
+                action.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12), action.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+                action.widthAnchor.constraint(greaterThanOrEqualToConstant: 88), action.heightAnchor.constraint(equalToConstant: 40),
+                labels.trailingAnchor.constraint(equalTo: icon.leadingAnchor, constant: -12),
+                labels.leadingAnchor.constraint(greaterThanOrEqualTo: action.trailingAnchor, constant: 10),
+                labels.centerYAnchor.constraint(equalTo: root.centerYAnchor)
+            ])
+        } else {
+            NSLayoutConstraint.activate([
+                background.leadingAnchor.constraint(equalTo: root.leadingAnchor), background.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+                background.topAnchor.constraint(equalTo: root.topAnchor), background.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+                icon.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12), icon.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+                icon.widthAnchor.constraint(equalToConstant: 62), icon.heightAnchor.constraint(equalToConstant: 62),
+                action.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12), action.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+                action.widthAnchor.constraint(greaterThanOrEqualToConstant: 72), action.heightAnchor.constraint(equalToConstant: 40),
+                labels.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12),
+                labels.trailingAnchor.constraint(lessThanOrEqualTo: action.leadingAnchor, constant: -10),
+                labels.centerYAnchor.constraint(equalTo: root.centerYAnchor)
+            ])
+        }
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(cardTapped))
+        tap.delegate = self
+        tap.cancelsTouchesInView = false
+        root.addGestureRecognizer(tap)
+    }
+
+    private func loadImage(_ raw: String?, into view: UIImageView) {
+        guard let raw, let url = URL(string: raw), !raw.isEmpty else { view.image = UIImage(systemName: "app.fill"); return }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data, let image = UIImage(data: data) else { return }
+            DispatchQueue.main.async { view.image = image }
+        }.resume()
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var v: UIView? = touch.view
+        while let current = v {
+            if current === action { return false }
+            v = current.superview
+        }
+        return true
     }
 
     @objc private func cardTapped() { bridge.channel.invokeMethod("tap", arguments: nil) }
-    @objc private func actionTapped(_ sender: UIButton) {
-        bridge.channel.invokeMethod(sender.accessibilityIdentifier ?? "download", arguments: nil)
+    @objc private func actionTapped(_ sender: UIButton) { bridge.channel.invokeMethod(sender.accessibilityIdentifier ?? "download", arguments: nil) }
+    func view() -> UIView { root }
+}
+
+private final class NativeFeaturedBannerFactory: NSObject, FlutterPlatformViewFactory {
+    let messenger: FlutterBinaryMessenger
+    init(messenger: FlutterBinaryMessenger) { self.messenger = messenger }
+    func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol { FlutterStandardMessageCodec.sharedInstance() }
+    func create(withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?) -> FlutterPlatformView {
+        NativeFeaturedBannerView(frame: frame, viewId: viewId, args: args, messenger: messenger)
     }
+}
+
+private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
+    let root = UIControl()
+    let bridge: NativeControlBridge
+    var imageURLs: [String] = []
+    var imageIndex = 0
+    weak var backgroundImage: UIImageView?
+    var timer: Timer?
+
+    init(frame: CGRect, viewId: Int64, args: Any?, messenger: FlutterBinaryMessenger) {
+        bridge = NativeControlBridge(messenger: messenger, viewId: viewId)
+        super.init()
+        let p = args as? [String: Any] ?? [:]
+        let app = p["app"] as? [String: Any] ?? [:]
+        let isArabic = p["isArabic"] as? Bool ?? true
+        imageURLs = app["screenshots"] as? [String] ?? []
+
+        root.frame = frame
+        root.backgroundColor = .secondarySystemBackground
+        root.layer.cornerRadius = 28
+        root.clipsToBounds = true
+        root.semanticContentAttribute = isArabic ? .forceRightToLeft : .forceLeftToRight
+        root.addTarget(self, action: #selector(tapped), for: .touchUpInside)
+
+        let bg = UIImageView(frame: root.bounds)
+        bg.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        bg.contentMode = .scaleAspectFill
+        bg.backgroundColor = .black
+        bg.isUserInteractionEnabled = false
+        root.addSubview(bg)
+        backgroundImage = bg
+        loadBannerImage()
+
+        let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+        blur.translatesAutoresizingMaskIntoConstraints = false
+        blur.isUserInteractionEnabled = false
+        root.addSubview(blur)
+        let shade = UIView()
+        shade.translatesAutoresizingMaskIntoConstraints = false
+        shade.backgroundColor = UIColor.black.withAlphaComponent(0.18)
+        shade.isUserInteractionEnabled = false
+        root.addSubview(shade)
+
+        let icon = UIImageView()
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.contentMode = .scaleAspectFill
+        icon.layer.cornerRadius = 15
+        icon.clipsToBounds = true
+        icon.backgroundColor = UIColor.white.withAlphaComponent(0.12)
+        loadRemoteImage(app["iconUrl"] as? String, into: icon)
+
+        let title = UILabel()
+        title.translatesAutoresizingMaskIntoConstraints = false
+        title.text = app["displayName"] as? String ?? ""
+        title.font = .preferredFont(forTextStyle: .title2)
+        title.textColor = .white
+        title.numberOfLines = 2
+        title.textAlignment = isArabic ? .right : .left
+
+        let subtitle = UILabel()
+        subtitle.translatesAutoresizingMaskIntoConstraints = false
+        subtitle.text = app["displaySubtitle"] as? String ?? ""
+        subtitle.font = .preferredFont(forTextStyle: .subheadline)
+        subtitle.textColor = UIColor.white.withAlphaComponent(0.82)
+        subtitle.numberOfLines = 3
+        subtitle.textAlignment = isArabic ? .right : .left
+
+        let version = UIButton(type: .system)
+        version.translatesAutoresizingMaskIntoConstraints = false
+        var vc: UIButton.Configuration
+        if #available(iOS 26.0, *) { vc = .glass() } else { vc = .tinted() }
+        vc.title = ((app["version"] as? String)?.isEmpty == false) ? "v\(app["version"] as? String ?? "")" : (isArabic ? "جديد" : "New")
+        vc.cornerStyle = .capsule
+        version.configuration = vc
+        version.tintColor = .white
+        version.isUserInteractionEnabled = false
+
+        root.addSubview(icon); root.addSubview(title); root.addSubview(subtitle); root.addSubview(version)
+        NSLayoutConstraint.activate([
+            blur.leadingAnchor.constraint(equalTo: root.leadingAnchor), blur.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            blur.topAnchor.constraint(equalTo: root.topAnchor), blur.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            shade.leadingAnchor.constraint(equalTo: root.leadingAnchor), shade.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            shade.topAnchor.constraint(equalTo: root.topAnchor), shade.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 62), icon.heightAnchor.constraint(equalToConstant: 62),
+            title.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor, multiplier: 0.53),
+            subtitle.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor, multiplier: 0.60),
+            version.heightAnchor.constraint(greaterThanOrEqualToConstant: 34)
+        ])
+        if isArabic {
+            NSLayoutConstraint.activate([
+                icon.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20), icon.topAnchor.constraint(equalTo: root.topAnchor, constant: 38),
+                title.trailingAnchor.constraint(equalTo: icon.leadingAnchor, constant: -12), title.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
+                subtitle.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20), subtitle.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 18),
+                version.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20), version.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 16)
+            ])
+        } else {
+            NSLayoutConstraint.activate([
+                icon.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20), icon.topAnchor.constraint(equalTo: root.topAnchor, constant: 38),
+                title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12), title.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
+                subtitle.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20), subtitle.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 18),
+                version.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20), version.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 16)
+            ])
+        }
+
+        if imageURLs.count > 1 {
+            timer = Timer.scheduledTimer(withTimeInterval: 4.5, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                self.imageIndex = (self.imageIndex + 1) % self.imageURLs.count
+                self.loadBannerImage(animated: true)
+            }
+        }
+    }
+
+    deinit { timer?.invalidate() }
+
+    private func loadBannerImage(animated: Bool = false) {
+        guard !imageURLs.isEmpty, let url = URL(string: imageURLs[imageIndex]) else { return }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let self, let data, let image = UIImage(data: data) else { return }
+            DispatchQueue.main.async {
+                guard let view = self.backgroundImage else { return }
+                if animated { UIView.transition(with: view, duration: 0.45, options: .transitionCrossDissolve) { view.image = image } }
+                else { view.image = image }
+            }
+        }.resume()
+    }
+    private func loadRemoteImage(_ raw: String?, into view: UIImageView) {
+        guard let raw, let url = URL(string: raw), !raw.isEmpty else { view.image = UIImage(systemName: "app.fill"); return }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data, let image = UIImage(data: data) else { return }
+            DispatchQueue.main.async { view.image = image }
+        }.resume()
+    }
+    @objc private func tapped() { bridge.channel.invokeMethod("tap", arguments: nil) }
     func view() -> UIView { root }
 }
 
@@ -519,6 +752,9 @@ private struct NativeAppSheetSwiftUIView: View {
     private var category: String { app["categoryDisplay"] as? String ?? app["category"] as? String ?? "" }
     private var version: String { app["version"] as? String ?? "" }
     private var developer: String { app["developerName"] as? String ?? "" }
+    private var createdAt: String { app["createdAtDisplay"] as? String ?? "" }
+    private var similar: [[String: Any]] { app["similarApps"] as? [[String: Any]] ?? [] }
+    private var recommended: [[String: Any]] { app["recommendedApps"] as? [[String: Any]] ?? [] }
     private var hasFile: Bool { state["hasFile"] as? Bool ?? false }
     private var downloading: Bool { state["downloading"] as? Bool ?? false }
 
@@ -533,24 +769,25 @@ private struct NativeAppSheetSwiftUIView: View {
                         }
                         .frame(width: 104, height: 104).clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
 
-                        VStack(alignment: .leading, spacing: 7) {
-                            Text(name).font(.title2.bold()).lineLimit(2)
-                            if !subtitle.isEmpty { Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(3) }
-                            actionButton
+                        VStack(alignment: isArabic ? .trailing : .leading, spacing: 7) {
+                            Text(name).font(.title2.bold()).lineLimit(2).frame(maxWidth: .infinity, alignment: isArabic ? .trailing : .leading)
+                            if !subtitle.isEmpty { Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(3).frame(maxWidth: .infinity, alignment: isArabic ? .trailing : .leading) }
+                            actionButton.frame(minWidth: 132, alignment: isArabic ? .trailing : .leading)
                         }
                     }
 
+                    Divider()
                     HStack(spacing: 0) {
                         nativeStat(isArabic ? "الإصدار" : "VERSION", version.isEmpty ? "—" : version, "number")
-                        Divider().frame(height: 42)
+                        Divider().frame(height: 48)
                         nativeStat(isArabic ? "التصنيف" : "CATEGORY", category.isEmpty ? "—" : category, "square.grid.2x2")
-                        Divider().frame(height: 42)
+                        Divider().frame(height: 48)
                         nativeStat(isArabic ? "المطور" : "DEVELOPER", developer.isEmpty ? "—" : developer, "person.crop.square")
-                    }
-                    .padding(.vertical, 8)
+                    }.padding(.vertical, 8)
+                    Divider()
 
                     if !screenshots.isEmpty {
-                        Text(isArabic ? "المعاينة" : "Preview").font(.title3.bold())
+                        sectionTitle(isArabic ? "المعاينة" : "Preview")
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 12) {
                                 ForEach(screenshots, id: \.self) { raw in
@@ -564,22 +801,63 @@ private struct NativeAppSheetSwiftUIView: View {
                         }
                     }
 
+                    Divider()
+                    sectionTitle(isArabic ? "ما الجديد" : "What's New")
+                    VStack(alignment: isArabic ? .trailing : .leading, spacing: 5) {
+                        Text(version.isEmpty ? (isArabic ? "معلومات الإصدار غير متوفرة" : "Version information is unavailable") : "\(isArabic ? "الإصدار" : "Version") \(version)")
+                            .foregroundStyle(.secondary)
+                        if !createdAt.isEmpty { Text(createdAt).font(.caption).foregroundStyle(.tertiary) }
+                    }.frame(maxWidth: .infinity, alignment: isArabic ? .trailing : .leading)
+
                     if !subtitle.isEmpty {
-                        Text(isArabic ? "حول التطبيق" : "About").font(.title3.bold())
-                        Text(subtitle).foregroundStyle(.secondary)
+                        Divider()
+                        sectionTitle(isArabic ? "حول التطبيق" : "About this app")
+                        Text(subtitle).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: isArabic ? .trailing : .leading)
+                    }
+
+                    if !similar.isEmpty {
+                        Divider()
+                        sectionTitle(isArabic ? "تطبيقات مشابهة" : "Similar Apps")
+                        relatedShelf(similar)
+                    }
+
+                    if !recommended.isEmpty {
+                        Divider()
+                        sectionTitle(isArabic ? "تطبيقات قد تعجبك" : "You Might Also Like")
+                        relatedShelf(recommended)
                     }
                 }
                 .padding(20)
             }
-            .navigationTitle(name)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button { dismiss() } label: { Image(systemName: isArabic ? "chevron.right" : "chevron.left") }
-                        .modifier(NativeGlassButtonModifier())
+            .navigationBarTitle(name, displayMode: .inline)
+            .navigationBarItems(leading:
+                Button { dismiss() } label: { Image(systemName: isArabic ? "chevron.right" : "chevron.left") }
+                    .modifier(NativeGlassButtonModifier())
+            )
+            .environment(\.layoutDirection, isArabic ? .rightToLeft : .leftToRight)
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
+    }
+
+    private func sectionTitle(_ text: String) -> some View {
+        Text(text).font(.title3.bold()).frame(maxWidth: .infinity, alignment: isArabic ? .trailing : .leading)
+    }
+
+    private func relatedShelf(_ items: [[String: Any]]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 14) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    VStack(alignment: .center, spacing: 7) {
+                        AsyncImage(url: URL(string: item["iconUrl"] as? String ?? "")) { phase in
+                            if let image = phase.image { image.resizable().scaledToFill() }
+                            else { Image(systemName: "app.fill") }
+                        }
+                        .frame(width: 76, height: 76).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        Text(item["displayName"] as? String ?? "").font(.caption.bold()).lineLimit(1).frame(width: 92)
+                    }
+                    .padding(.vertical, 4)
                 }
             }
-            .environment(\.layoutDirection, isArabic ? .rightToLeft : .leftToRight)
         }
     }
 
@@ -588,10 +866,10 @@ private struct NativeAppSheetSwiftUIView: View {
             Button { action("pause") } label: { Label(isArabic ? "إيقاف مؤقت" : "Pause", systemImage: "pause.fill") }
                 .modifier(NativeProminentGlassButtonModifier())
         } else if hasFile {
-            Button { action("sign"); dismiss() } label: { Text(isArabic ? "توقيع" : "Sign") }
+            Button { action("sign"); dismiss() } label: { Text(isArabic ? "توقيع" : "Sign").frame(minWidth: 105) }
                 .modifier(NativeProminentGlassButtonModifier())
         } else {
-            Button { action("download") } label: { Text(isArabic ? "تنزيل" : "GET") }
+            Button { action("download") } label: { Label(isArabic ? "تنزيل" : "GET", systemImage: "arrow.down.circle.fill").frame(minWidth: 105) }
                 .modifier(NativeProminentGlassButtonModifier())
         }
     }

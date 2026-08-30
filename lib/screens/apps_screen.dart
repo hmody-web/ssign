@@ -376,8 +376,22 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     if (action == 'download') { await _startDownload(app); }
     else if (action == 'pause') { _downloads.togglePause(app); }
     else if (action == 'sign' && state.file != null) { widget.onSignRequested?.call(state.file!); }
+    else if (action == 'open_related') {
+      Future<void>.delayed(const Duration(milliseconds: 280), () {
+        if (mounted) _openDetails(app);
+      });
+    }
     return null;
   }
+
+  Map<String, dynamic> _compactNativeApp(RemoteApp item) => <String, dynamic>{
+    'id': item.id,
+    'displayName': item.displayName(_store.isArabic),
+    'displaySubtitle': item.displaySubtitle(_store.isArabic),
+    'iconUrl': item.iconUrl,
+    'version': item.version,
+    'categoryDisplay': _categoryDisplay(item.category, _store.isArabic),
+  };
 
   Map<String, dynamic> _nativeAppPayload(RemoteApp app) {
     final state = _downloads.stateFor(app);
@@ -385,11 +399,26 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     if (app.size >= 1024 * 1024 * 1024) sizeText = '${(app.size / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
     else if (app.size >= 1024 * 1024) sizeText = '${(app.size / 1024 / 1024).toStringAsFixed(0)} MB';
     else if (app.size > 0) sizeText = '${(app.size / 1024).toStringAsFixed(0)} KB';
+    final similar = _apps
+        .where((item) => item.id != app.id && app.category.trim().isNotEmpty && item.category.trim().toLowerCase() == app.category.trim().toLowerCase())
+        .take(8)
+        .toList();
+    final recommendedPool = _apps.where((item) => item.id != app.id && !similar.any((s) => s.id == item.id)).toList()
+      ..sort((a, b) {
+        final ad = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bd.compareTo(ad);
+      });
+    final similarForNative = similar.isNotEmpty ? similar : recommendedPool.take(6).toList();
+    final recommendedForNative = recommendedPool.take(10).toList();
     final appMap = <String, dynamic>{
       'id': app.id, 'name': app.name, 'displayName': app.displayName(_store.isArabic),
       'displaySubtitle': app.displaySubtitle(_store.isArabic), 'iconUrl': app.iconUrl,
       'version': app.version, 'category': app.category, 'categoryDisplay': _categoryDisplay(app.category, _store.isArabic),
       'developerName': app.developerName, 'screenshots': app.screenshots,
+      'createdAtDisplay': app.createdAt == null ? '' : '${app.createdAt!.toLocal().day.toString().padLeft(2, '0')}/${app.createdAt!.toLocal().month.toString().padLeft(2, '0')}/${app.createdAt!.toLocal().year}',
+      'similarApps': similarForNative.map(_compactNativeApp).toList(),
+      'recommendedApps': recommendedForNative.map(_compactNativeApp).toList(),
       'meta': [if (app.version.isNotEmpty) 'v${app.version}', if (sizeText.isNotEmpty) sizeText, if (app.category.isNotEmpty) _categoryDisplay(app.category, _store.isArabic)].join(' • '),
     };
     return {
@@ -520,6 +549,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
                               values: _categories,
                               labels: _categories.map((e) => _categoryDisplay(e, isArabic)).toList(),
                               selected: _selectedCategory,
+                              isArabic: isArabic,
                               onChanged: (value) => setState(() => _selectedCategory = value),
                             )
                           : _CategoryShelf(
@@ -582,6 +612,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
                           return NativeIOSAppCard(
                             app: Map<String, dynamic>.from(payload['app'] as Map),
                             downloadState: Map<String, dynamic>.from(payload['state'] as Map),
+                            isArabic: isArabic,
                             onDownload: () => _startDownload(app),
                             onPause: () => _downloads.togglePause(app),
                             onSign: state.file == null ? null : () => widget.onSignRequested?.call(state.file!),
@@ -790,7 +821,20 @@ class _FeaturedCarouselState extends State<_FeaturedCarousel> {
           onPageChanged: (v) => _index = v,
           itemBuilder: (context, index) => Padding(
             padding: const EdgeInsetsDirectional.only(end: 10),
-            child: _FeaturedBannerCard(app: widget.apps[index], isArabic: widget.isArabic, onTap: () => widget.onTap(widget.apps[index])),
+            child: Platform.isIOS
+                ? NativeIOSFeaturedBanner(
+                    app: <String, dynamic>{
+                      'id': widget.apps[index].id,
+                      'displayName': widget.apps[index].displayName(widget.isArabic),
+                      'displaySubtitle': widget.apps[index].displaySubtitle(widget.isArabic),
+                      'iconUrl': widget.apps[index].iconUrl,
+                      'version': widget.apps[index].version,
+                      'screenshots': widget.apps[index].screenshots,
+                    },
+                    isArabic: widget.isArabic,
+                    onTap: () => widget.onTap(widget.apps[index]),
+                  )
+                : _FeaturedBannerCard(app: widget.apps[index], isArabic: widget.isArabic, onTap: () => widget.onTap(widget.apps[index])),
           ),
         ),
       );

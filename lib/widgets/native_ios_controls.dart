@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 
 class NativeIOSButton extends StatefulWidget {
@@ -192,6 +194,7 @@ class NativeIOSCategories extends StatefulWidget {
   final List<String> values;
   final List<String> labels;
   final String? selected;
+  final bool isArabic;
   final ValueChanged<String?> onChanged;
   final double height;
 
@@ -200,6 +203,7 @@ class NativeIOSCategories extends StatefulWidget {
     required this.values,
     required this.labels,
     required this.selected,
+    required this.isArabic,
     required this.onChanged,
     this.height = 48,
   });
@@ -223,8 +227,12 @@ class _NativeIOSCategoriesState extends State<NativeIOSCategories> {
           'values': widget.values,
           'labels': widget.labels,
           'selected': widget.selected,
+          'isArabic': widget.isArabic,
         },
         creationParamsCodec: const StandardMessageCodec(),
+        gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+          Factory<OneSequenceGestureRecognizer>(() => HorizontalDragGestureRecognizer()),
+        },
         onPlatformViewCreated: (id) {
           final channel = MethodChannel('booma/native_control/$id');
           _channel = channel;
@@ -249,6 +257,7 @@ class _NativeIOSCategoriesState extends State<NativeIOSCategories> {
 class NativeIOSAppCard extends StatefulWidget {
   final Map<String, dynamic> app;
   final Map<String, dynamic> downloadState;
+  final bool isArabic;
   final VoidCallback onTap;
   final VoidCallback onDownload;
   final VoidCallback onPause;
@@ -259,6 +268,7 @@ class NativeIOSAppCard extends StatefulWidget {
     super.key,
     required this.app,
     required this.downloadState,
+    required this.isArabic,
     required this.onTap,
     required this.onDownload,
     required this.onPause,
@@ -284,6 +294,7 @@ class _NativeIOSAppCardState extends State<NativeIOSAppCard> {
         creationParams: {
           'app': widget.app,
           'state': widget.downloadState,
+          'isArabic': widget.isArabic,
         },
         creationParamsCodec: const StandardMessageCodec(),
         onPlatformViewCreated: (id) {
@@ -296,6 +307,59 @@ class _NativeIOSAppCardState extends State<NativeIOSAppCard> {
               case 'pause': widget.onPause(); break;
               case 'sign': widget.onSign?.call(); break;
             }
+          });
+        },
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _channel?.setMethodCallHandler(null);
+    super.dispose();
+  }
+}
+
+
+class NativeIOSFeaturedBanner extends StatefulWidget {
+  final Map<String, dynamic> app;
+  final bool isArabic;
+  final VoidCallback onTap;
+  final double height;
+
+  const NativeIOSFeaturedBanner({
+    super.key,
+    required this.app,
+    required this.isArabic,
+    required this.onTap,
+    this.height = 310,
+  });
+
+  @override
+  State<NativeIOSFeaturedBanner> createState() => _NativeIOSFeaturedBannerState();
+}
+
+class _NativeIOSFeaturedBannerState extends State<NativeIOSFeaturedBanner> {
+  MethodChannel? _channel;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!Platform.isIOS) return const SizedBox.shrink();
+    return SizedBox(
+      height: widget.height,
+      child: UiKitView(
+        key: ValueKey('featured-${widget.app['id']}-${widget.isArabic}'),
+        viewType: 'booma/native_featured_banner',
+        creationParams: {
+          'app': widget.app,
+          'isArabic': widget.isArabic,
+        },
+        creationParamsCodec: const StandardMessageCodec(),
+        onPlatformViewCreated: (id) {
+          final channel = MethodChannel('booma/native_control/$id');
+          _channel = channel;
+          channel.setMethodCallHandler((call) async {
+            if (call.method == 'tap') widget.onTap();
           });
         },
       ),

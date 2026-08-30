@@ -82,6 +82,7 @@ class _HomeShellState extends State<HomeShell> {
     // which looked like the selected Liquid Glass item jumped backwards.
     if (index != page) setState(() => index = page);
     _syncNativeSelection(page);
+    if (Platform.isIOS) return;
     if (animate) {
       _pageController.animateToPage(
         page,
@@ -100,27 +101,36 @@ class _HomeShellState extends State<HomeShell> {
           extendBody: true,
           body: SafeArea(
             bottom: false,
-            child: PageView(
-              controller: _pageController,
-              physics: const BouncingScrollPhysics(parent: PageScrollPhysics()),
-              onPageChanged: (page) {
-                if (index != page) setState(() => index = page);
-                _syncNativeSelection(page);
-              },
-              children: [
-                AppsScreen(onSignRequested: _openSignForFile, topKey: _topKeys[0]),
-                LibraryScreen(onSignRequested: _openSignForFile, topKey: _topKeys[1]),
-                SignScreen(
-                  preparedFile: _preparedSignFile,
-                  topKey: _topKeys[2],
-                  onSelectionCleared: () {
-                    if (_preparedSignFile != null) {
-                      setState(() => _preparedSignFile = null);
-                    }
+            child: Builder(
+              builder: (context) {
+                final pages = <Widget>[
+                  AppsScreen(onSignRequested: _openSignForFile, topKey: _topKeys[0]),
+                  LibraryScreen(onSignRequested: _openSignForFile, topKey: _topKeys[1]),
+                  SignScreen(
+                    preparedFile: _preparedSignFile,
+                    topKey: _topKeys[2],
+                    onSelectionCleared: () {
+                      if (_preparedSignFile != null) setState(() => _preparedSignFile = null);
+                    },
+                  ),
+                  SettingsScreen(topKey: _topKeys[3]),
+                ];
+
+                // iOS system tabs switch content immediately. Using an IndexedStack
+                // also keeps embedded UIKit controls alive and avoids PageView/platform-view
+                // composition churn when entering Files.
+                if (Platform.isIOS) return IndexedStack(index: index, children: pages);
+
+                return PageView(
+                  controller: _pageController,
+                  physics: const BouncingScrollPhysics(parent: PageScrollPhysics()),
+                  onPageChanged: (page) {
+                    if (index != page) setState(() => index = page);
+                    _syncNativeSelection(page);
                   },
-                ),
-                SettingsScreen(topKey: _topKeys[3]),
-              ],
+                  children: pages,
+                );
+              },
             ),
           ),
           bottomNavigationBar: _SystemBottomBar(
