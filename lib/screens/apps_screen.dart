@@ -372,13 +372,14 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     RemoteApp? app;
     for (final candidate in _apps) { if (candidate.id == id) { app = candidate; break; } }
     if (app == null) return null;
-    final state = _downloads.stateFor(app);
-    if (action == 'download') { await _startDownload(app); }
-    else if (action == 'pause') { _downloads.togglePause(app); }
+    final selectedApp = app;
+    final state = _downloads.stateFor(selectedApp);
+    if (action == 'download') { await _startDownload(selectedApp); }
+    else if (action == 'pause') { _downloads.togglePause(selectedApp); }
     else if (action == 'sign' && state.file != null) { widget.onSignRequested?.call(state.file!); }
     else if (action == 'open_related') {
       Future<void>.delayed(const Duration(milliseconds: 280), () {
-        if (mounted) _openDetails(app);
+        if (mounted) _openDetails(selectedApp);
       });
     }
     return null;
