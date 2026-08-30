@@ -497,6 +497,8 @@ private final class NativeAppCardView: NSObject, FlutterPlatformView, UIGestureR
     let root = UIView()
     let bridge: NativeControlBridge
     let action = UIButton(type: .system)
+    let downloadTrackLayer = CAShapeLayer()
+    let downloadProgressLayer = CAShapeLayer()
     let isArabic: Bool
 
     init(frame: CGRect, viewId: Int64, args: Any?, messenger: FlutterBinaryMessenger) {
@@ -560,8 +562,22 @@ private final class NativeAppCardView: NSObject, FlutterPlatformView, UIGestureR
 
         action.translatesAutoresizingMaskIntoConstraints = false
         action.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
-        applyState(state)
         root.addSubview(action)
+        downloadTrackLayer.fillColor = UIColor.clear.cgColor
+        downloadTrackLayer.strokeColor = UIColor.tertiaryLabel.withAlphaComponent(0.32).cgColor
+        downloadTrackLayer.lineWidth = 2.6
+        downloadTrackLayer.lineCap = .round
+        downloadTrackLayer.isHidden = true
+        action.layer.addSublayer(downloadTrackLayer)
+
+        downloadProgressLayer.fillColor = UIColor.clear.cgColor
+        downloadProgressLayer.strokeColor = UIColor.label.cgColor
+        downloadProgressLayer.lineWidth = 2.6
+        downloadProgressLayer.lineCap = .round
+        downloadProgressLayer.strokeEnd = 0
+        downloadProgressLayer.isHidden = true
+        action.layer.addSublayer(downloadProgressLayer)
+        applyState(state)
 
         if isArabic {
             NSLayoutConstraint.activate([
@@ -610,35 +626,78 @@ private final class NativeAppCardView: NSObject, FlutterPlatformView, UIGestureR
         let paused = state["paused"] as? Bool ?? false
         let hasFile = state["hasFile"] as? Bool ?? false
         let stage = state["stage"] as? String ?? ""
+        let progress: CGFloat = {
+            if let d = state["progress"] as? Double { return CGFloat(max(0, min(1, d))) }
+            if let n = state["progress"] as? NSNumber { return CGFloat(max(0, min(1, n.doubleValue))) }
+            return 0
+        }()
+
         var config: UIButton.Configuration
         if downloading {
-            config = .gray()
+            config = .plain()
             config.title = nil
-            config.image = UIImage(systemName: paused ? "play.circle.fill" : "stop.circle.fill")
-            config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 27, weight: .regular)
+            config.image = UIImage(systemName: paused ? "play.fill" : "stop.fill")
+            config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+            config.baseForegroundColor = .label
             action.accessibilityIdentifier = "pause"
             action.isEnabled = true
+            updateProgressRing(progress: progress, visible: true)
         } else if stage == "signing" || stage == "installing" {
             config = .gray()
             config.title = stage == "signing" ? (isArabic ? "جارٍ التوقيع" : "Signing…") : (isArabic ? "جارٍ التثبيت" : "Installing…")
             config.image = nil
             action.isEnabled = false
+            updateProgressRing(progress: 0, visible: false)
         } else if hasFile {
             config = .gray()
             config.title = isArabic ? "توقيع" : "Sign"
             config.image = nil
             action.accessibilityIdentifier = "sign"
             action.isEnabled = true
+            updateProgressRing(progress: 0, visible: false)
         } else {
             if #available(iOS 26.0, *) { config = .prominentGlass() } else { config = .filled() }
             config.title = isArabic ? "تنزيل" : "GET"
-            config.image = UIImage(systemName: "arrow.down.circle.fill")
+            config.image = nil
             action.accessibilityIdentifier = "download"
             action.isEnabled = true
+            updateProgressRing(progress: 0, visible: false)
         }
         config.cornerStyle = .capsule
-        config.imagePadding = 5
         action.configuration = config
+    }
+
+    private func updateProgressRing(progress: CGFloat, visible: Bool) {
+        downloadTrackLayer.isHidden = !visible
+        downloadProgressLayer.isHidden = !visible
+        guard visible else { downloadProgressLayer.strokeEnd = 0; return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.action.layoutIfNeeded()
+            let diameter: CGFloat = 34
+            let rect = CGRect(
+                x: (self.action.bounds.width - diameter) / 2,
+                y: (self.action.bounds.height - diameter) / 2,
+                width: diameter,
+                height: diameter
+            )
+            let path = UIBezierPath(ovalIn: rect).cgPath
+            self.downloadTrackLayer.frame = self.action.bounds
+            self.downloadProgressLayer.frame = self.action.bounds
+            self.downloadTrackLayer.path = path
+            self.downloadProgressLayer.path = path
+
+            let current = self.downloadProgressLayer.presentation()?.strokeEnd ?? self.downloadProgressLayer.strokeEnd
+            self.downloadProgressLayer.removeAnimation(forKey: "progress")
+            self.downloadProgressLayer.strokeEnd = progress
+            let animation = CABasicAnimation(keyPath: "strokeEnd")
+            animation.fromValue = current
+            animation.toValue = progress
+            animation.duration = 0.18
+            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            self.downloadProgressLayer.add(animation, forKey: "progress")
+        }
     }
 
     private func loadImage(_ raw: String?, into view: UIImageView) {
@@ -708,11 +767,12 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
 
         let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
         blur.translatesAutoresizingMaskIntoConstraints = false
+        blur.alpha = 0.66
         blur.isUserInteractionEnabled = false
         root.addSubview(blur)
         let shade = UIView()
         shade.translatesAutoresizingMaskIntoConstraints = false
-        shade.backgroundColor = UIColor.black.withAlphaComponent(0.18)
+        shade.backgroundColor = UIColor.black.withAlphaComponent(0.11)
         shade.isUserInteractionEnabled = false
         root.addSubview(shade)
 
@@ -831,6 +891,45 @@ fileprivate final class NativeAppSheetStateModel: ObservableObject {
 }
 
 @available(iOS 15.0, *)
+private struct BoomaCachedRemoteImage: View {
+    let raw: String
+    let contentMode: ContentMode
+    @State private var image: UIImage?
+
+    init(_ raw: String, contentMode: ContentMode = .fill) {
+        self.raw = raw
+        self.contentMode = contentMode
+        _image = State(initialValue: BoomaImageCache.shared.image(for: raw))
+    }
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
+            } else {
+                ProgressView()
+                    .onAppear(perform: load)
+            }
+        }
+    }
+
+    private func load() {
+        guard image == nil, let url = URL(string: raw), !raw.isEmpty else { return }
+        if let cached = BoomaImageCache.shared.image(for: raw) {
+            image = cached
+            return
+        }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data, let loaded = UIImage(data: data) else { return }
+            BoomaImageCache.shared.store(loaded, for: raw)
+            DispatchQueue.main.async { image = loaded }
+        }.resume()
+    }
+}
+
+@available(iOS 15.0, *)
 private struct NativeAppSheetSwiftUIView: View {
     let app: [String: Any]
     @ObservedObject var model: NativeAppSheetStateModel
@@ -929,11 +1028,7 @@ private struct NativeAppSheetSwiftUIView: View {
             }
             .navigationBarTitle("", displayMode: .inline)
             .navigationBarItems(
-                leading: Button { dismiss() } label: {
-                    Image(systemName: isArabic ? "chevron.right" : "chevron.left")
-                        .font(.body.weight(.semibold))
-                }.buttonStyle(.plain),
-                trailing: Menu {
+                leading: Menu {
                     Toggle(isOn: Binding(
                         get: { autoSign },
                         set: { next in
@@ -947,7 +1042,11 @@ private struct NativeAppSheetSwiftUIView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.title3)
-                }
+                },
+                trailing: Button { dismiss() } label: {
+                    Image(systemName: isArabic ? "chevron.right" : "chevron.left")
+                        .font(.body.weight(.semibold))
+                }.buttonStyle(.plain)
             )
             .fullScreenCover(isPresented: $showScreenshot) {
                 ZStack {
@@ -1009,9 +1108,14 @@ private struct NativeAppSheetSwiftUIView: View {
     }
 
     private var appIcon: some View {
-        AsyncImage(url: iconURL) { phase in
-            if let image = phase.image { image.resizable().scaledToFill() }
-            else { Image(systemName: "app.fill").font(.system(size: 42)).frame(maxWidth: .infinity, maxHeight: .infinity) }
+        Group {
+            if let raw = app["iconUrl"] as? String, !raw.isEmpty {
+                BoomaCachedRemoteImage(raw, contentMode: .fill)
+            } else {
+                Image(systemName: "app.fill")
+                    .font(.system(size: 42))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .frame(width: 104, height: 104)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -1045,12 +1149,20 @@ private struct NativeAppSheetSwiftUIView: View {
     @ViewBuilder private var actionButton: some View {
         if downloading {
             Button { action("pause", nil) } label: {
-                Image(systemName: paused ? "play.circle.fill" : "stop.circle.fill")
-                    .font(.system(size: 30, weight: .regular))
-                    .frame(width: 48, height: 38)
+                ZStack {
+                    Circle()
+                        .stroke(Color.secondary.opacity(0.24), lineWidth: 2.6)
+                    Circle()
+                        .trim(from: 0, to: max(0.02, min(1, progress)))
+                        .stroke(Color.primary, style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .animation(.easeOut(duration: 0.18), value: progress)
+                    Image(systemName: paused ? "play.fill" : "stop.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .frame(width: 36, height: 36)
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
+            .buttonStyle(.plain)
         } else if hasFile {
             Button { action("sign", nil); dismiss() } label: {
                 Text(isArabic ? "توقيع" : "Sign").frame(minWidth: 148)

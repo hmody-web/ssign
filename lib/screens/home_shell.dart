@@ -19,6 +19,7 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
+  final PageStorageBucket _pageStorageBucket = PageStorageBucket();
   static const _nativeTabChannel = MethodChannel('booma/native_system_tab_bar_channel');
 
   int index = 0;
@@ -99,9 +100,11 @@ class _HomeShellState extends State<HomeShell> {
         animation: AppStore.instance,
         builder: (context, _) => Scaffold(
           extendBody: true,
-          body: SafeArea(
-            bottom: false,
-            child: Builder(
+          body: PageStorage(
+            bucket: _pageStorageBucket,
+            child: SafeArea(
+              bottom: false,
+              child: Builder(
               builder: (context) {
                 final pages = <Widget>[
                   AppsScreen(onSignRequested: _openSignForFile, topKey: _topKeys[0]),
@@ -137,6 +140,7 @@ class _HomeShellState extends State<HomeShell> {
                 );
               },
             ),
+          ),
           ),
           bottomNavigationBar: _SystemBottomBar(
             selectedIndex: index,

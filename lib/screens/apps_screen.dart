@@ -71,7 +71,7 @@ class AppsScreen extends StatefulWidget {
 
 class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMixin {
   static const _nativeAppSheetChannel = MethodChannel('booma/native_app_sheet_channel');
-  static const _pageSize = 25;
+  static const _pageSize = 10;
   static const _cacheKey = 'ipa.library.cache.v3.merged';
   static const _cacheSyncKey = 'ipa.library.cache.synced.v3.merged';
   static const _syncEvery = Duration(minutes: 5);
@@ -641,15 +641,20 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
                   final app = apps[index];
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 10),
-                    child: AnimatedBuilder(
-                      animation: _downloads,
-                      builder: (context, _) {
-                        final state = _downloads.stateFor(app);
+                    child: _AppDownloadStateBuilder(
+                      app: app,
+                      builder: (context, state) {
                         if (Platform.isIOS) {
                           final payload = _nativeAppPayload(app);
                           return NativeIOSAppCard(
                             app: Map<String, dynamic>.from(payload['app'] as Map),
-                            downloadState: Map<String, dynamic>.from(payload['state'] as Map),
+                            downloadState: <String, dynamic>{
+                              'downloading': state.downloading,
+                              'paused': state.paused,
+                              'progress': state.progress,
+                              'stage': state.stage,
+                              'hasFile': state.file != null,
+                            },
                             isArabic: isArabic,
                             onDownload: () => _startDownload(app),
                             onPause: () => _downloads.togglePause(app),
@@ -1021,6 +1026,61 @@ class _FeaturedBannerCardState extends State<_FeaturedBannerCard> with SingleTic
       ),
     );
   }
+}
+
+
+class _AppDownloadStateBuilder extends StatefulWidget {
+  final RemoteApp app;
+  final Widget Function(BuildContext context, AppDownloadSnapshot state) builder;
+
+  const _AppDownloadStateBuilder({required this.app, required this.builder});
+
+  @override
+  State<_AppDownloadStateBuilder> createState() => _AppDownloadStateBuilderState();
+}
+
+class _AppDownloadStateBuilderState extends State<_AppDownloadStateBuilder> {
+  final AppDownloadManager _manager = AppDownloadManager.instance;
+  late AppDownloadSnapshot _state;
+  String _signature = '';
+
+  String _sig(AppDownloadSnapshot s) =>
+      '${s.downloading}|${s.paused}|${s.progress?.toStringAsFixed(3)}|${s.stage}|${s.file?.path ?? ''}|${s.error ?? ''}';
+
+  @override
+  void initState() {
+    super.initState();
+    _state = _manager.stateFor(widget.app);
+    _signature = _sig(_state);
+    _manager.addListener(_onManagerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _AppDownloadStateBuilder oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.app.id != widget.app.id) {
+      _state = _manager.stateFor(widget.app);
+      _signature = _sig(_state);
+    }
+  }
+
+  void _onManagerChanged() {
+    final next = _manager.stateFor(widget.app);
+    final nextSignature = _sig(next);
+    if (nextSignature == _signature) return;
+    _state = next;
+    _signature = nextSignature;
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _manager.removeListener(_onManagerChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _state);
 }
 
 class _AppCard extends StatelessWidget {

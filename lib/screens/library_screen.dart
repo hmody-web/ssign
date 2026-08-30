@@ -16,6 +16,43 @@ import '../widgets/glass_card.dart';
 import 'signed_files_screen.dart';
 import 'folders_screen.dart';
 
+
+class _FilesSystemCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final double radius;
+
+  const _FilesSystemCard({
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+    this.radius = 22,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = CupertinoDynamicColor.resolve(
+      CupertinoColors.secondarySystemGroupedBackground,
+      context,
+    );
+    final separator = CupertinoDynamicColor.resolve(CupertinoColors.separator, context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: surface.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: separator.withValues(alpha: 0.18), width: 0.5),
+        boxShadow: [
+          BoxShadow(
+            color: CupertinoColors.black.withValues(alpha: 0.035),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Padding(padding: padding, child: child),
+    );
+  }
+}
+
 class LibraryScreen extends StatefulWidget {
   final ValueChanged<ImportedFile>? onSignRequested;
   final ScrollController? scrollController;
@@ -231,7 +268,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-          child: GlassCard(
+          child: _FilesSystemCard(
             radius: 30,
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
             child: Column(
@@ -449,7 +486,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: 18),
               sliver: SliverToBoxAdapter(
-                child: GlassCard(
+                child: _FilesSystemCard(
                   child: Row(
                     children: [
                       Icon(CupertinoIcons.tray_arrow_down, size: 34, color: Theme.of(context).colorScheme.primary),
@@ -464,7 +501,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           ],
                         ),
                       ),
-                      FilledButton(onPressed: _import, child: Text(tr('استيراد', 'Import'))),
+                      CupertinoButton.tinted(onPressed: _import, padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9), child: Text(tr('استيراد', 'Import'))),
                     ],
                   ),
                 ),
@@ -484,7 +521,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         ),
                       ),
                     ),
-                    child: GlassCard(
+                    child: _FilesSystemCard(
                       padding: const EdgeInsets.all(15),
                       child: Row(
                         children: [
@@ -521,7 +558,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   child: InkWell(
                     borderRadius: BorderRadius.circular(24),
                     onTap: () => Navigator.of(context).push(CupertinoPageRoute(builder: (_) => const FoldersScreen())),
-                    child: GlassCard(
+                    child: _FilesSystemCard(
                       padding: const EdgeInsets.all(15),
                       child: Row(children: [
                         Container(width: 48, height: 48, decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary.withValues(alpha: .13), borderRadius: BorderRadius.circular(14)), child: Icon(CupertinoIcons.folder_fill, color: Theme.of(context).colorScheme.primary)),
@@ -568,7 +605,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   child: Row(
                     children: [
                       Expanded(
-                        child: FilledButton.tonalIcon(
+                        child: CupertinoButton.tinted(
                           onPressed: () => setState(() {
                             if (selected.length == store.importedFiles.length) {
                               selected.clear();
@@ -576,8 +613,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
                               selected.addAll(store.importedFiles.map((e) => e.id));
                             }
                           }),
-                          icon: Icon(selected.length == store.importedFiles.length ? CupertinoIcons.clear_circled : CupertinoIcons.checkmark_alt_circle),
-                          label: Text(selected.length == store.importedFiles.length ? tr('إلغاء تحديد الكل', 'Clear all') : tr('تحديد الكل', 'Select all')),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(selected.length == store.importedFiles.length ? CupertinoIcons.clear_circled : CupertinoIcons.checkmark_alt_circle, size: 18),
+                              const SizedBox(width: 7),
+                              Flexible(child: Text(selected.length == store.importedFiles.length ? tr('إلغاء تحديد الكل', 'Clear all') : tr('تحديد الكل', 'Select all'))),
+                            ],
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -593,11 +637,22 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         icon: const Icon(CupertinoIcons.doc_on_doc),
                       ),
                       const SizedBox(width: 8),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+                      CupertinoButton(
+                        color: CupertinoColors.systemRed.resolveFrom(context),
+                        disabledColor: CupertinoColors.systemGrey4.resolveFrom(context),
                         onPressed: selected.isEmpty ? null : _deleteSelected,
-                        icon: const Icon(CupertinoIcons.trash),
-                        label: Text(selected.isEmpty ? tr('حذف', 'Delete') : '${tr('حذف', 'Delete')} (${selected.length})'),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(CupertinoIcons.trash, size: 18, color: CupertinoColors.white),
+                            const SizedBox(width: 6),
+                            Text(
+                              selected.isEmpty ? tr('حذف', 'Delete') : '${tr('حذف', 'Delete')} (${selected.length})',
+                              style: const TextStyle(color: CupertinoColors.white),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -639,7 +694,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           if (selecting) { _toggleSelection(f); return; }
                           _showFileActions(f);
                         },
-                        child: GlassCard(
+                        child: _FilesSystemCard(
                           padding: const EdgeInsets.all(14),
                           child: Row(
                             children: [
@@ -660,15 +715,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 ),
                               ),
                               if (!selecting)
-                                FilledButton(
+                                CupertinoButton.tinted(
                                   onPressed: () => _showFileActions(f),
-                                  style: FilledButton.styleFrom(
-                                    minimumSize: const Size(76, 34),
-                                    padding: const EdgeInsets.symmetric(horizontal: 13),
-                                    backgroundColor: Theme.of(context).colorScheme.primary,
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  ),
+                                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
                                   child: Text(tr('التفاصيل', 'Details'), style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w800)),
                                 ),
                             ],
@@ -692,7 +741,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-          child: GlassCard(
+          child: _FilesSystemCard(
             radius: 30,
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
             child: Column(
@@ -800,7 +849,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onLongPress: snap.downloading ? () => _showDownloadActions(app, snap) : null,
-      child: GlassCard(
+      child: _FilesSystemCard(
         padding: const EdgeInsets.all(14),
         child: Row(
           children: [
@@ -851,17 +900,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ),
             const SizedBox(width: 12),
             if (processing)
-              FilledButton(
+              CupertinoButton.tinted(
                 onPressed: null,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(108, 38),
-                  padding: const EdgeInsets.symmetric(horizontal: 13),
-                  shape: const StadiumBorder(),
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                    const SizedBox(width: 14, height: 14, child: CupertinoActivityIndicator(radius: 7)),
                     const SizedBox(width: 7),
                     Text(statusText ?? '', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
                   ],
