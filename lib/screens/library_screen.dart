@@ -413,6 +413,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget build(BuildContext context) => AnimatedBuilder(
         animation: store,
         builder: (context, _) => CustomScrollView(
+          key: const PageStorageKey('files-main-scroll'),
           controller: widget.scrollController,
           slivers: [
             SliverPadding(

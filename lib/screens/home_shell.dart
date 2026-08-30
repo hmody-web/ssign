@@ -116,9 +116,9 @@ class _HomeShellState extends State<HomeShell> {
                   SettingsScreen(topKey: _topKeys[3]),
                 ];
 
-                // Keep only the selected iOS page mounted. Retaining several hidden
-                // UIKit platform views inside an IndexedStack can destabilize composition
-                // when opening the Files tab. App data itself stays in AppStore/services.
+                // Keep only one UIKit-heavy page mounted at a time for stability.
+                // Each section owns a PageStorageKey, so its scroll offset is restored
+                // exactly when the user comes back without retaining hidden platform views.
                 if (Platform.isIOS) {
                   return KeyedSubtree(
                     key: ValueKey('ios-page-$index'),

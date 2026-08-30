@@ -605,6 +605,7 @@ class _SignScreenState extends State<SignScreen> {
         builder: (context, _) {
           final identity = selectedIdentity;
           return ListView(
+            key: const PageStorageKey('sign-main-scroll'),
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 110),
             children: [
               Text(tr('توقيع تطبيق', 'Sign App'), key: widget.topKey, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -1)),

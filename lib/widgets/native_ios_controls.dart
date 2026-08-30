@@ -284,12 +284,20 @@ class _NativeIOSAppCardState extends State<NativeIOSAppCard> {
   MethodChannel? _channel;
 
   @override
+  void didUpdateWidget(covariant NativeIOSAppCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.downloadState != widget.downloadState) {
+      _channel?.invokeMethod<void>('updateState', widget.downloadState).catchError((_) {});
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (!Platform.isIOS) return const SizedBox.shrink();
     return SizedBox(
       height: widget.height,
       child: UiKitView(
-        key: ValueKey('${widget.app['id']}|${widget.downloadState['stage']}|${widget.downloadState['progress']}'),
+        key: ValueKey('native-app-card-${widget.app['id']}-${widget.isArabic}'),
         viewType: 'booma/native_app_card',
         creationParams: {
           'app': widget.app,
@@ -332,7 +340,7 @@ class NativeIOSFeaturedBanner extends StatefulWidget {
     required this.app,
     required this.isArabic,
     required this.onTap,
-    this.height = 310,
+    this.height = 215,
   });
 
   @override

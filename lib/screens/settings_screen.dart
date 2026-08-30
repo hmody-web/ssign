@@ -48,6 +48,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         builder: (context, _) {
           final store = AppStore.instance;
           return ListView(
+            key: const PageStorageKey('settings-main-scroll'),
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 110),
             children: [
               Text(tr('الإعدادات', 'Settings'), key: widget.topKey, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -1)),

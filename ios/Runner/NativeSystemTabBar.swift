@@ -2,6 +2,29 @@ import Flutter
 import UIKit
 import SwiftUI
 
+
+private final class BoomaImageCache {
+    static let shared = BoomaImageCache()
+    private let cache = NSCache<NSString, UIImage>()
+    private var timestamps: [String: Date] = [:]
+    private let queue = DispatchQueue(label: "booma.image.cache")
+    private let ttl: TimeInterval = 300
+
+    func image(for key: String) -> UIImage? {
+        guard let image = cache.object(forKey: key as NSString) else { return nil }
+        let fresh = queue.sync { Date().timeIntervalSince(timestamps[key] ?? .distantPast) < ttl }
+        if fresh { return image }
+        cache.removeObject(forKey: key as NSString)
+        queue.async { self.timestamps.removeValue(forKey: key) }
+        return nil
+    }
+
+    func store(_ image: UIImage, for key: String) {
+        cache.setObject(image, forKey: key as NSString)
+        queue.async { self.timestamps[key] = Date() }
+    }
+}
+
 /// Bridges a real UIKit UITabBar into Flutter.
 ///
 /// There is intentionally no hand-made blur/glass styling here. When the app is
@@ -15,6 +38,7 @@ final class NativeSystemTabBarPlugin: NSObject, FlutterPlugin {
     private static var channel: FlutterMethodChannel?
     private static var appSheetChannel: FlutterMethodChannel?
     fileprivate static weak var activeView: NativeSystemTabBarView?
+    @available(iOS 15.0, *) fileprivate static var activeAppSheetModel: NativeAppSheetStateModel?
 
     static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: channelName, binaryMessenger: registrar.messenger())
@@ -46,6 +70,12 @@ final class NativeSystemTabBarPlugin: NSObject, FlutterPlugin {
             }
             DispatchQueue.main.async { NativeSystemTabBarPlugin.presentAppSheet(payload) }
             result(nil)
+        case "updateAppSheetState":
+            guard let next = call.arguments as? [String: Any] else { result(nil); return }
+            if #available(iOS 15.0, *) {
+                DispatchQueue.main.async { NativeSystemTabBarPlugin.activeAppSheetModel?.update(next) }
+            }
+            result(nil)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -56,8 +86,12 @@ final class NativeSystemTabBarPlugin: NSObject, FlutterPlugin {
         let app = payload["app"] as? [String: Any] ?? [:]
         let state = payload["state"] as? [String: Any] ?? [:]
         let isArabic = payload["isArabic"] as? Bool ?? false
-        let view = NativeAppSheetSwiftUIView(app: app, state: state, isArabic: isArabic) { action in
-            appSheetChannel?.invokeMethod("action", arguments: ["id": app["id"] as? String ?? "", "action": action])
+        let model = NativeAppSheetStateModel(state: state)
+        activeAppSheetModel = model
+        let view = NativeAppSheetSwiftUIView(app: app, model: model, isArabic: isArabic) { action, value in
+            var args: [String: Any] = ["id": app["id"] as? String ?? "", "action": action]
+            if let value { args["value"] = value }
+            appSheetChannel?.invokeMethod("action", arguments: args)
         }
         let host = UIHostingController(rootView: view)
         host.modalPresentationStyle = .pageSheet
@@ -392,10 +426,24 @@ private final class NativeSystemCategoriesView: NSObject, FlutterPlatformView {
             stack.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor)
         ])
 
-        addButton(title: isArabic ? "الكل" : "All", value: "", selected: self.selected == nil || self.selected?.isEmpty == true)
-        for (i, value) in values.enumerated() {
-            let supplied = i < labels.count ? labels[i] : value
-            addButton(title: categoryLabel(raw: value, supplied: supplied), value: value, selected: value == self.selected)
+        if isArabic {
+            for (i, value) in values.enumerated().reversed() {
+                let supplied = i < labels.count ? labels[i] : value
+                addButton(title: categoryLabel(raw: value, supplied: supplied), value: value, selected: value == self.selected)
+            }
+            addButton(title: "الكل", value: "", selected: self.selected == nil || self.selected?.isEmpty == true)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.root.layoutIfNeeded()
+                let x = max(0, self.scroll.contentSize.width - self.scroll.bounds.width)
+                self.scroll.setContentOffset(CGPoint(x: x, y: 0), animated: false)
+            }
+        } else {
+            addButton(title: "All", value: "", selected: self.selected == nil || self.selected?.isEmpty == true)
+            for (i, value) in values.enumerated() {
+                let supplied = i < labels.count ? labels[i] : value
+                addButton(title: categoryLabel(raw: value, supplied: supplied), value: value, selected: value == self.selected)
+            }
         }
     }
 
@@ -511,31 +559,8 @@ private final class NativeAppCardView: NSObject, FlutterPlatformView, UIGestureR
         root.addSubview(labels)
 
         action.translatesAutoresizingMaskIntoConstraints = false
-        let downloading = state["downloading"] as? Bool ?? false
-        let paused = state["paused"] as? Bool ?? false
-        let hasFile = state["hasFile"] as? Bool ?? false
-        let stage = state["stage"] as? String ?? ""
-        var config: UIButton.Configuration
-        if #available(iOS 26.0, *) { config = .prominentGlass() } else { config = .filled() }
-        config.cornerStyle = .capsule
-        if downloading {
-            config.title = paused ? (isArabic ? "استئناف" : "Resume") : (isArabic ? "إيقاف" : "Pause")
-            config.image = UIImage(systemName: paused ? "play.fill" : "pause.fill")
-            action.accessibilityIdentifier = "pause"
-        } else if stage == "signing" || stage == "installing" {
-            config.title = stage == "signing" ? (isArabic ? "جارٍ التوقيع" : "Signing…") : (isArabic ? "جارٍ التثبيت" : "Installing…")
-            action.isEnabled = false
-        } else if hasFile {
-            config.title = isArabic ? "توقيع" : "Sign"
-            action.accessibilityIdentifier = "sign"
-        } else {
-            config.title = isArabic ? "تنزيل" : "GET"
-            config.image = UIImage(systemName: "arrow.down.circle.fill")
-            action.accessibilityIdentifier = "download"
-        }
-        config.imagePadding = 5
-        action.configuration = config
         action.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
+        applyState(state)
         root.addSubview(action)
 
         if isArabic {
@@ -564,16 +589,64 @@ private final class NativeAppCardView: NSObject, FlutterPlatformView, UIGestureR
             ])
         }
 
+        bridge.channel.setMethodCallHandler { [weak self] call, result in
+            guard let self else { result(nil); return }
+            if call.method == "updateState", let next = call.arguments as? [String: Any] {
+                DispatchQueue.main.async { self.applyState(next) }
+                result(nil)
+            } else {
+                result(FlutterMethodNotImplemented)
+            }
+        }
+
         let tap = UITapGestureRecognizer(target: self, action: #selector(cardTapped))
         tap.delegate = self
         tap.cancelsTouchesInView = false
         root.addGestureRecognizer(tap)
     }
 
+    private func applyState(_ state: [String: Any]) {
+        let downloading = state["downloading"] as? Bool ?? false
+        let paused = state["paused"] as? Bool ?? false
+        let hasFile = state["hasFile"] as? Bool ?? false
+        let stage = state["stage"] as? String ?? ""
+        var config: UIButton.Configuration
+        if downloading {
+            config = .gray()
+            config.title = nil
+            config.image = UIImage(systemName: paused ? "play.circle.fill" : "stop.circle.fill")
+            config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 27, weight: .regular)
+            action.accessibilityIdentifier = "pause"
+            action.isEnabled = true
+        } else if stage == "signing" || stage == "installing" {
+            config = .gray()
+            config.title = stage == "signing" ? (isArabic ? "جارٍ التوقيع" : "Signing…") : (isArabic ? "جارٍ التثبيت" : "Installing…")
+            config.image = nil
+            action.isEnabled = false
+        } else if hasFile {
+            config = .gray()
+            config.title = isArabic ? "توقيع" : "Sign"
+            config.image = nil
+            action.accessibilityIdentifier = "sign"
+            action.isEnabled = true
+        } else {
+            if #available(iOS 26.0, *) { config = .prominentGlass() } else { config = .filled() }
+            config.title = isArabic ? "تنزيل" : "GET"
+            config.image = UIImage(systemName: "arrow.down.circle.fill")
+            action.accessibilityIdentifier = "download"
+            action.isEnabled = true
+        }
+        config.cornerStyle = .capsule
+        config.imagePadding = 5
+        action.configuration = config
+    }
+
     private func loadImage(_ raw: String?, into view: UIImageView) {
         guard let raw, let url = URL(string: raw), !raw.isEmpty else { view.image = UIImage(systemName: "app.fill"); return }
+        if let cached = BoomaImageCache.shared.image(for: raw) { view.image = cached; return }
         URLSession.shared.dataTask(with: url) { data, _, _ in
             guard let data, let image = UIImage(data: data) else { return }
+            BoomaImageCache.shared.store(image, for: raw)
             DispatchQueue.main.async { view.image = image }
         }.resume()
     }
@@ -619,7 +692,7 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
 
         root.frame = frame
         root.backgroundColor = .secondarySystemBackground
-        root.layer.cornerRadius = 28
+        root.layer.cornerRadius = 24
         root.clipsToBounds = true
         root.semanticContentAttribute = isArabic ? .forceRightToLeft : .forceLeftToRight
         root.addTarget(self, action: #selector(tapped), for: .touchUpInside)
@@ -717,8 +790,14 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
 
     private func loadBannerImage(animated: Bool = false) {
         guard !imageURLs.isEmpty, let url = URL(string: imageURLs[imageIndex]) else { return }
+        let key = imageURLs[imageIndex]
+        if let cached = BoomaImageCache.shared.image(for: key) {
+            backgroundImage?.image = cached
+            return
+        }
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let self, let data, let image = UIImage(data: data) else { return }
+            BoomaImageCache.shared.store(image, for: key)
             DispatchQueue.main.async {
                 guard let view = self.backgroundImage else { return }
                 if animated { UIView.transition(with: view, duration: 0.45, options: .transitionCrossDissolve) { view.image = image } }
@@ -728,8 +807,10 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
     }
     private func loadRemoteImage(_ raw: String?, into view: UIImageView) {
         guard let raw, let url = URL(string: raw), !raw.isEmpty else { view.image = UIImage(systemName: "app.fill"); return }
+        if let cached = BoomaImageCache.shared.image(for: raw) { view.image = cached; return }
         URLSession.shared.dataTask(with: url) { data, _, _ in
             guard let data, let image = UIImage(data: data) else { return }
+            BoomaImageCache.shared.store(image, for: raw)
             DispatchQueue.main.async { view.image = image }
         }.resume()
     }
@@ -738,12 +819,26 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
 }
 
 @available(iOS 15.0, *)
+fileprivate final class NativeAppSheetStateModel: ObservableObject {
+    @Published var state: [String: Any]
+    init(state: [String: Any]) { self.state = state }
+    func update(_ next: [String: Any]) {
+        if let incomingId = next["id"] as? String, let currentId = state["id"] as? String, !currentId.isEmpty, incomingId != currentId { return }
+        var merged = state
+        for (key, value) in next { merged[key] = value }
+        state = merged
+    }
+}
+
+@available(iOS 15.0, *)
 private struct NativeAppSheetSwiftUIView: View {
     let app: [String: Any]
-    let state: [String: Any]
+    @ObservedObject var model: NativeAppSheetStateModel
     let isArabic: Bool
-    let action: (String) -> Void
+    let action: (String, Any?) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedScreenshot: String?
+    @State private var showScreenshot = false
 
     private var name: String { app["displayName"] as? String ?? app["name"] as? String ?? "" }
     private var subtitle: String { app["displaySubtitle"] as? String ?? "" }
@@ -755,8 +850,11 @@ private struct NativeAppSheetSwiftUIView: View {
     private var createdAt: String { app["createdAtDisplay"] as? String ?? "" }
     private var similar: [[String: Any]] { app["similarApps"] as? [[String: Any]] ?? [] }
     private var recommended: [[String: Any]] { app["recommendedApps"] as? [[String: Any]] ?? [] }
-    private var hasFile: Bool { state["hasFile"] as? Bool ?? false }
-    private var downloading: Bool { state["downloading"] as? Bool ?? false }
+    private var hasFile: Bool { model.state["hasFile"] as? Bool ?? false }
+    private var downloading: Bool { model.state["downloading"] as? Bool ?? false }
+    private var paused: Bool { model.state["paused"] as? Bool ?? false }
+    private var progress: Double { model.state["progress"] as? Double ?? 0 }
+    private var autoSign: Bool { model.state["autoSign"] as? Bool ?? false }
 
     var body: some View {
         NavigationView {
@@ -779,14 +877,23 @@ private struct NativeAppSheetSwiftUIView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 12) {
                                 ForEach(screenshots, id: \.self) { raw in
-                                    AsyncImage(url: URL(string: raw)) { phase in
-                                        if let image = phase.image { image.resizable().scaledToFill() }
-                                        else { ProgressView() }
+                                    Button {
+                                        selectedScreenshot = raw
+                                        showScreenshot = true
+                                    } label: {
+                                        AsyncImage(url: URL(string: raw)) { phase in
+                                            if let image = phase.image { image.resizable().scaledToFill() }
+                                            else { ProgressView() }
+                                        }
+                                        .frame(width: 190, height: 360)
+                                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                                     }
-                                    .frame(width: 190, height: 360).clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                                    .buttonStyle(.plain)
                                 }
                             }
+                            .padding(.horizontal, 20)
                         }
+                        .padding(.horizontal, -20)
                     }
 
                     Divider()
@@ -820,11 +927,52 @@ private struct NativeAppSheetSwiftUIView: View {
                 }
                 .padding(20)
             }
-            .navigationBarTitle(name, displayMode: .inline)
-            .navigationBarItems(leading:
-                Button { dismiss() } label: { Image(systemName: isArabic ? "chevron.right" : "chevron.left") }
-                    .modifier(NativeGlassButtonModifier())
+            .navigationBarTitle("", displayMode: .inline)
+            .navigationBarItems(
+                leading: Button { dismiss() } label: {
+                    Image(systemName: isArabic ? "chevron.right" : "chevron.left")
+                        .font(.body.weight(.semibold))
+                }.buttonStyle(.plain),
+                trailing: Menu {
+                    Toggle(isOn: Binding(
+                        get: { autoSign },
+                        set: { next in
+                            model.update(["autoSign": next])
+                            action("toggle_auto_sign", next)
+                        }
+                    )) {
+                        Label(isArabic ? "التوقيع التلقائي بعد التنزيل" : "Auto-sign after download",
+                              systemImage: "signature")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.title3)
+                }
             )
+            .fullScreenCover(isPresented: $showScreenshot) {
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    if let raw = selectedScreenshot {
+                        AsyncImage(url: URL(string: raw)) { phase in
+                            if let image = phase.image { image.resizable().scaledToFit() }
+                            else { ProgressView().tint(.white) }
+                        }
+                        .ignoresSafeArea(edges: .horizontal)
+                    }
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button { showScreenshot = false } label: {
+                                Image(systemName: "xmark.circle.fill").font(.system(size: 30))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.white)
+                            .padding()
+                        }
+                        Spacer()
+                    }
+                }
+            }
             .environment(\.layoutDirection, isArabic ? .rightToLeft : .leftToRight)
         }
         .navigationViewStyle(StackNavigationViewStyle())
@@ -896,14 +1044,27 @@ private struct NativeAppSheetSwiftUIView: View {
 
     @ViewBuilder private var actionButton: some View {
         if downloading {
-            Button { action("pause") } label: { Label(isArabic ? "إيقاف مؤقت" : "Pause", systemImage: "pause.fill") }
-                .modifier(NativeProminentGlassButtonModifier())
+            Button { action("pause", nil) } label: {
+                Image(systemName: paused ? "play.circle.fill" : "stop.circle.fill")
+                    .font(.system(size: 30, weight: .regular))
+                    .frame(width: 48, height: 38)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
         } else if hasFile {
-            Button { action("sign"); dismiss() } label: { Text(isArabic ? "توقيع" : "Sign").frame(minWidth: 132) }
-                .modifier(NativeProminentGlassButtonModifier())
+            Button { action("sign", nil); dismiss() } label: {
+                Text(isArabic ? "توقيع" : "Sign").frame(minWidth: 148)
+            }
+            .buttonStyle(.bordered)
+            .tint(.gray)
         } else {
-            Button { action("download") } label: { Label(isArabic ? "تنزيل" : "GET", systemImage: "arrow.down.circle.fill").frame(minWidth: 132) }
-                .modifier(NativeProminentGlassButtonModifier())
+            Button {
+                model.update(["downloading": true, "paused": false, "progress": 0.0])
+                action("download", nil)
+            } label: {
+                Text(isArabic ? "تنزيل" : "GET").frame(minWidth: 148)
+            }
+            .modifier(NativeProminentGlassButtonModifier())
         }
     }
 

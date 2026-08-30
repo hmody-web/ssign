@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/remote_app.dart';
 import '../models/sign_models.dart';
 import '../services/app_download_manager.dart';
+import '../services/signing_service.dart';
 import '../services/admin_service.dart';
 import '../services/app_store.dart';
 import '../services/ipa_library_service.dart';
@@ -70,7 +71,7 @@ class AppsScreen extends StatefulWidget {
 
 class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMixin {
   static const _nativeAppSheetChannel = MethodChannel('booma/native_app_sheet_channel');
-  static const _pageSize = 30;
+  static const _pageSize = 25;
   static const _cacheKey = 'ipa.library.cache.v3.merged';
   static const _cacheSyncKey = 'ipa.library.cache.synced.v3.merged';
   static const _syncEvery = Duration(minutes: 5);
@@ -92,6 +93,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   bool _searchOpen = false;
   String? _selectedCategory;
   String? _error;
+  String? _openNativeAppId;
   int _searchGeneration = 0;
   DateTime? _lastSync;
 
@@ -132,6 +134,8 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    _downloads.addListener(_syncOpenNativeSheet);
+    _store.addListener(_syncOpenNativeSheet);
     if (Platform.isIOS) _nativeAppSheetChannel.setMethodCallHandler(_handleNativeSheetAction);
     AdminService.instance.deletedAppId.addListener(_onAdminDeletedApp);
     _restoreThenLoad();
@@ -145,6 +149,8 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     AdminService.instance.deletedAppId.removeListener(_onAdminDeletedApp);
     _searchDebounce?.cancel();
     _searchController.dispose();
+    _downloads.removeListener(_syncOpenNativeSheet);
+    _store.removeListener(_syncOpenNativeSheet);
     _scrollController.dispose();
     _service.close();
     super.dispose();
@@ -345,6 +351,27 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     }
   }
 
+
+  void _syncOpenNativeSheet() {
+    final id = _openNativeAppId;
+    if (!Platform.isIOS || id == null) return;
+    RemoteApp? current;
+    for (final app in _apps) {
+      if (app.id == id) { current = app; break; }
+    }
+    if (current == null) return;
+    final state = _downloads.stateFor(current);
+    _nativeAppSheetChannel.invokeMethod<void>('updateAppSheetState', <String, dynamic>{
+      'id': current.id,
+      'downloading': state.downloading,
+      'paused': state.paused,
+      'progress': state.progress,
+      'stage': state.stage,
+      'hasFile': state.file != null,
+      'autoSign': _store.autoSignAfterDownload,
+    }).catchError((_) {});
+  }
+
   Future<void> _startDownload(RemoteApp app) async {
     try {
       final file = await _downloads.start(app);
@@ -377,6 +404,15 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     if (action == 'download') { await _startDownload(selectedApp); }
     else if (action == 'pause') { _downloads.togglePause(selectedApp); }
     else if (action == 'sign' && state.file != null) { widget.onSignRequested?.call(state.file!); }
+    else if (action == 'toggle_auto_sign') {
+      final next = args['value'] == true;
+      if (next) {
+        final runtime = await SigningService().automaticSigningState();
+        if (runtime['ready'] != true && _store.identities.isEmpty) return false;
+      }
+      await _store.setAutoSignAfterDownload(next);
+      _syncOpenNativeSheet();
+    }
     else if (action == 'open_related') {
       Future<void>.delayed(const Duration(milliseconds: 280), () {
         if (mounted) _openDetails(selectedApp);
@@ -426,7 +462,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
       'app': appMap,
       'state': {
         'downloading': state.downloading, 'paused': state.paused, 'progress': state.progress,
-        'stage': state.stage, 'hasFile': state.file != null,
+        'stage': state.stage, 'hasFile': state.file != null, 'autoSign': _store.autoSignAfterDownload,
       },
       'isArabic': _store.isArabic,
     };
@@ -434,6 +470,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
 
   void _openDetails(RemoteApp app) {
     if (Platform.isIOS) {
+      _openNativeAppId = app.id;
       _nativeAppSheetChannel.invokeMethod<void>('presentAppSheet', _nativeAppPayload(app));
       return;
     }
@@ -814,7 +851,7 @@ class _FeaturedCarouselState extends State<_FeaturedCarousel> {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        height: 310,
+        height: 215,
         child: PageView.builder(
           controller: _controller,
           physics: const BouncingScrollPhysics(),
