@@ -11,6 +11,9 @@ import UIKit
     if let registrar = self.registrar(forPlugin: "AdminSecurePlugin") {
       AdminSecurePlugin.register(with: registrar)
     }
+    if let registrar = self.registrar(forPlugin: "NativeSystemTabBarPlugin") {
+      NativeSystemTabBarPlugin.register(with: registrar)
+    }
     DispatchQueue.global(qos: .utility).async {
       try? RouteCache.prime()
     }

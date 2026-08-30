@@ -7,6 +7,7 @@
 
 /* Begin PBXBuildFile section */
 		97C146F31CF9000F007C117D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97C146F21CF9000F007C117D /* AppDelegate.swift */; };
+		D60000000000000100000001 /* NativeSystemTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D60000000000000100000002 /* NativeSystemTabBar.swift */; };
 		A10000000000000100000001 /* SignNativePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000002 /* SignNativePlugin.swift */; };
 		A10000000000000100000003 /* LocalInstallServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000004 /* LocalInstallServer.swift */; };
 		C50000000000000100000001 /* RouteCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C50000000000000100000002 /* RouteCache.swift */; };
@@ -23,6 +24,7 @@
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
 		97C146EE1CF9000F007C117D /* Booma.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Booma.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		97C146F21CF9000F007C117D /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		D60000000000000100000002 /* NativeSystemTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemTabBar.swift; sourceTree = "<group>"; };
 		A10000000000000100000002 /* SignNativePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignNativePlugin.swift; sourceTree = "<group>"; };
 		A10000000000000100000004 /* LocalInstallServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalInstallServer.swift; sourceTree = "<group>"; };
 		C50000000000000100000002 /* RouteCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteCache.swift; sourceTree = "<group>"; };
@@ -43,7 +45,7 @@
 		9740EEB11CF90186004384FC /* Flutter */ = {isa = PBXGroup; children = (9740EEB21CF90195004384FC /* Debug.xcconfig */,7AFA3C8E1D35360C0083082E /* Release.xcconfig */,); name = Flutter; sourceTree = "<group>"; };
 		97C146E51CF9000F007C117D = {isa = PBXGroup; children = (9740EEB11CF90186004384FC /* Flutter */,97C146F01CF9000F007C117D /* Runner */,97C146EF1CF9000F007C117D /* Products */,); sourceTree = "<group>"; };
 		97C146EF1CF9000F007C117D /* Products */ = {isa = PBXGroup; children = (97C146EE1CF9000F007C117D /* Booma.app */,); name = Products; sourceTree = "<group>"; };
-		97C146F01CF9000F007C117D /* Runner */ = {isa = PBXGroup; children = (97C146FA1CF9000F007C117D /* Main.storyboard */,97C146FD1CF9000F007C117D /* LaunchScreen.storyboard */,97C147001CF9000F007C117D /* Info.plist */,97C146F21CF9000F007C117D /* AppDelegate.swift */,A10000000000000100000002 /* SignNativePlugin.swift */,A10000000000000100000004 /* LocalInstallServer.swift */,C50000000000000100000002 /* RouteCache.swift */,A30000000000000100000002 /* Assets.xcassets */,B40000000000000100000003 /* GeneratedPluginRegistrant.h */,B40000000000000100000002 /* GeneratedPluginRegistrant.m */,97C3A1D61CF9000F007C117D /* Runner-Bridging-Header.h */,); path = Runner; sourceTree = "<group>"; };
+		97C146F01CF9000F007C117D /* Runner */ = {isa = PBXGroup; children = (97C146FA1CF9000F007C117D /* Main.storyboard */,97C146FD1CF9000F007C117D /* LaunchScreen.storyboard */,97C147001CF9000F007C117D /* Info.plist */,97C146F21CF9000F007C117D /* AppDelegate.swift */,D60000000000000100000002 /* NativeSystemTabBar.swift */,A10000000000000100000002 /* SignNativePlugin.swift */,A10000000000000100000004 /* LocalInstallServer.swift */,C50000000000000100000002 /* RouteCache.swift */,A30000000000000100000002 /* Assets.xcassets */,B40000000000000100000003 /* GeneratedPluginRegistrant.h */,B40000000000000100000002 /* GeneratedPluginRegistrant.m */,97C3A1D61CF9000F007C117D /* Runner-Bridging-Header.h */,); path = Runner; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -64,7 +66,7 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		97C146EA1CF9000F007C117D /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (97C146F31CF9000F007C117D /* AppDelegate.swift in Sources */,A10000000000000100000001 /* SignNativePlugin.swift in Sources */,A10000000000000100000003 /* LocalInstallServer.swift in Sources */,C50000000000000100000001 /* RouteCache.swift in Sources */,B40000000000000100000001 /* GeneratedPluginRegistrant.m in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+		97C146EA1CF9000F007C117D /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (97C146F31CF9000F007C117D /* AppDelegate.swift in Sources */,D60000000000000100000001 /* NativeSystemTabBar.swift in Sources */,A10000000000000100000001 /* SignNativePlugin.swift in Sources */,A10000000000000100000003 /* LocalInstallServer.swift in Sources */,C50000000000000100000001 /* RouteCache.swift in Sources */,B40000000000000100000001 /* GeneratedPluginRegistrant.m in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
