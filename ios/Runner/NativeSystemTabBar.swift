@@ -372,7 +372,7 @@ private final class NativeSystemCategoriesView: NSObject, FlutterPlatformView {
         scroll.showsVerticalScrollIndicator = false
         scroll.alwaysBounceHorizontal = true
         scroll.alwaysBounceVertical = false
-        scroll.directionalLockEnabled = true
+        scroll.isDirectionalLockEnabled = true
         scroll.delaysContentTouches = false
         scroll.canCancelContentTouches = true
         scroll.semanticContentAttribute = isArabic ? .forceRightToLeft : .forceLeftToRight
