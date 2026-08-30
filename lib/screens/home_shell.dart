@@ -116,10 +116,15 @@ class _HomeShellState extends State<HomeShell> {
                   SettingsScreen(topKey: _topKeys[3]),
                 ];
 
-                // iOS system tabs switch content immediately. Using an IndexedStack
-                // also keeps embedded UIKit controls alive and avoids PageView/platform-view
-                // composition churn when entering Files.
-                if (Platform.isIOS) return IndexedStack(index: index, children: pages);
+                // Keep only the selected iOS page mounted. Retaining several hidden
+                // UIKit platform views inside an IndexedStack can destabilize composition
+                // when opening the Files tab. App data itself stays in AppStore/services.
+                if (Platform.isIOS) {
+                  return KeyedSubtree(
+                    key: ValueKey('ios-page-$index'),
+                    child: pages[index],
+                  );
+                }
 
                 return PageView(
                   controller: _pageController,

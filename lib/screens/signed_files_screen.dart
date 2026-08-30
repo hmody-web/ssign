@@ -9,7 +9,6 @@ import '../services/signing_service.dart';
 import '../services/persistent_path_service.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
-import '../widgets/native_material_controls.dart';
 
 class SignedFilesScreen extends StatefulWidget {
   final ValueChanged<ImportedFile> onSignRequested;
@@ -110,7 +109,7 @@ class _SignedFilesScreenState extends State<SignedFilesScreen> with SingleTicker
                               ],
                             ),
                           ),
-                          NativeCompatIconButton(onPressed: () => Navigator.pop(dialogContext), icon: const Icon(CupertinoIcons.xmark_circle_fill)),
+                          IconButton(onPressed: () => Navigator.pop(dialogContext), icon: const Icon(CupertinoIcons.xmark_circle_fill)),
                         ],
                       ),
                       const SizedBox(height: 17),
@@ -270,7 +269,7 @@ class _SignedFilesScreenState extends State<SignedFilesScreen> with SingleTicker
           title: Text(tr('الملفات الموقعة', 'Signed Files')),
           actions: [
             if (items.isNotEmpty)
-              NativeCompatIconButton.filledTonal(
+              IconButton.filledTonal(
                 tooltip: selecting ? tr('إلغاء', 'Cancel') : tr('تحديد', 'Select'),
                 onPressed: () => setState(() { selecting = !selecting; selected.clear(); }),
                 icon: Icon(selecting ? CupertinoIcons.xmark : CupertinoIcons.checkmark_circle_fill),
@@ -308,7 +307,7 @@ class _SignedFilesScreenState extends State<SignedFilesScreen> with SingleTicker
                     child: Row(
                       children: [
                         Expanded(
-                          child: NativeCompatFilledButton.tonalIcon(
+                          child: FilledButton.tonalIcon(
                             onPressed: () => setState(() {
                               if (selected.length == files.length) selected.clear(); else selected.addAll(files.map((e) => e.id));
                             }),
@@ -317,8 +316,8 @@ class _SignedFilesScreenState extends State<SignedFilesScreen> with SingleTicker
                           ),
                         ),
                         const SizedBox(width: 10),
-                        NativeCompatFilledButton.icon(
-                          style: NativeCompatFilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
                           onPressed: selected.isEmpty ? null : _deleteSelected,
                           icon: const Icon(CupertinoIcons.trash),
                           label: Text('${tr('حذف', 'Delete')} ${selected.isEmpty ? '' : '(${selected.length})'}'),

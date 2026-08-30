@@ -542,24 +542,24 @@ private final class NativeAppCardView: NSObject, FlutterPlatformView, UIGestureR
             NSLayoutConstraint.activate([
                 background.leadingAnchor.constraint(equalTo: root.leadingAnchor), background.trailingAnchor.constraint(equalTo: root.trailingAnchor),
                 background.topAnchor.constraint(equalTo: root.topAnchor), background.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-                icon.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12), icon.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+                icon.rightAnchor.constraint(equalTo: root.rightAnchor, constant: -12), icon.centerYAnchor.constraint(equalTo: root.centerYAnchor),
                 icon.widthAnchor.constraint(equalToConstant: 62), icon.heightAnchor.constraint(equalToConstant: 62),
-                action.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12), action.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+                action.leftAnchor.constraint(equalTo: root.leftAnchor, constant: 12), action.centerYAnchor.constraint(equalTo: root.centerYAnchor),
                 action.widthAnchor.constraint(greaterThanOrEqualToConstant: 88), action.heightAnchor.constraint(equalToConstant: 40),
-                labels.trailingAnchor.constraint(equalTo: icon.leadingAnchor, constant: -12),
-                labels.leadingAnchor.constraint(greaterThanOrEqualTo: action.trailingAnchor, constant: 10),
+                labels.rightAnchor.constraint(equalTo: icon.leftAnchor, constant: -12),
+                labels.leftAnchor.constraint(greaterThanOrEqualTo: action.rightAnchor, constant: 10),
                 labels.centerYAnchor.constraint(equalTo: root.centerYAnchor)
             ])
         } else {
             NSLayoutConstraint.activate([
                 background.leadingAnchor.constraint(equalTo: root.leadingAnchor), background.trailingAnchor.constraint(equalTo: root.trailingAnchor),
                 background.topAnchor.constraint(equalTo: root.topAnchor), background.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-                icon.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12), icon.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+                icon.leftAnchor.constraint(equalTo: root.leftAnchor, constant: 12), icon.centerYAnchor.constraint(equalTo: root.centerYAnchor),
                 icon.widthAnchor.constraint(equalToConstant: 62), icon.heightAnchor.constraint(equalToConstant: 62),
-                action.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12), action.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+                action.rightAnchor.constraint(equalTo: root.rightAnchor, constant: -12), action.centerYAnchor.constraint(equalTo: root.centerYAnchor),
                 action.widthAnchor.constraint(greaterThanOrEqualToConstant: 72), action.heightAnchor.constraint(equalToConstant: 40),
-                labels.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12),
-                labels.trailingAnchor.constraint(lessThanOrEqualTo: action.leadingAnchor, constant: -10),
+                labels.leftAnchor.constraint(equalTo: icon.rightAnchor, constant: 12),
+                labels.rightAnchor.constraint(lessThanOrEqualTo: action.leftAnchor, constant: -10),
                 labels.centerYAnchor.constraint(equalTo: root.centerYAnchor)
             ])
         }
@@ -690,17 +690,17 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
         ])
         if isArabic {
             NSLayoutConstraint.activate([
-                icon.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20), icon.topAnchor.constraint(equalTo: root.topAnchor, constant: 38),
-                title.trailingAnchor.constraint(equalTo: icon.leadingAnchor, constant: -12), title.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
-                subtitle.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20), subtitle.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 18),
-                version.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20), version.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 16)
+                icon.rightAnchor.constraint(equalTo: root.rightAnchor, constant: -20), icon.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
+                title.rightAnchor.constraint(equalTo: icon.leftAnchor, constant: -14), title.leftAnchor.constraint(greaterThanOrEqualTo: root.leftAnchor, constant: 20), title.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
+                subtitle.rightAnchor.constraint(equalTo: icon.leftAnchor, constant: -14), subtitle.leftAnchor.constraint(greaterThanOrEqualTo: root.leftAnchor, constant: 20), subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 8),
+                version.rightAnchor.constraint(equalTo: icon.leftAnchor, constant: -14), version.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 14)
             ])
         } else {
             NSLayoutConstraint.activate([
-                icon.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20), icon.topAnchor.constraint(equalTo: root.topAnchor, constant: 38),
-                title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12), title.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
-                subtitle.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20), subtitle.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 18),
-                version.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20), version.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 16)
+                icon.leftAnchor.constraint(equalTo: root.leftAnchor, constant: 20), icon.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
+                title.leftAnchor.constraint(equalTo: icon.rightAnchor, constant: 14), title.rightAnchor.constraint(lessThanOrEqualTo: root.rightAnchor, constant: -20), title.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
+                subtitle.leftAnchor.constraint(equalTo: icon.rightAnchor, constant: 14), subtitle.rightAnchor.constraint(lessThanOrEqualTo: root.rightAnchor, constant: -20), subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 8),
+                version.leftAnchor.constraint(equalTo: icon.rightAnchor, constant: 14), version.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 14)
             ])
         }
 
@@ -762,19 +762,7 @@ private struct NativeAppSheetSwiftUIView: View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    HStack(alignment: .top, spacing: 16) {
-                        AsyncImage(url: iconURL) { phase in
-                            if let image = phase.image { image.resizable().scaledToFill() }
-                            else { Image(systemName: "app.fill").font(.system(size: 42)).frame(maxWidth: .infinity, maxHeight: .infinity) }
-                        }
-                        .frame(width: 104, height: 104).clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-
-                        VStack(alignment: isArabic ? .trailing : .leading, spacing: 7) {
-                            Text(name).font(.title2.bold()).lineLimit(2).frame(maxWidth: .infinity, alignment: isArabic ? .trailing : .leading)
-                            if !subtitle.isEmpty { Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(3).frame(maxWidth: .infinity, alignment: isArabic ? .trailing : .leading) }
-                            actionButton.frame(minWidth: 132, alignment: isArabic ? .trailing : .leading)
-                        }
-                    }
+                    appHeader
 
                     Divider()
                     HStack(spacing: 0) {
@@ -806,13 +794,16 @@ private struct NativeAppSheetSwiftUIView: View {
                     VStack(alignment: isArabic ? .trailing : .leading, spacing: 5) {
                         Text(version.isEmpty ? (isArabic ? "معلومات الإصدار غير متوفرة" : "Version information is unavailable") : "\(isArabic ? "الإصدار" : "Version") \(version)")
                             .foregroundStyle(.secondary)
+                            .multilineTextAlignment(isArabic ? .trailing : .leading)
                         if !createdAt.isEmpty { Text(createdAt).font(.caption).foregroundStyle(.tertiary) }
-                    }.frame(maxWidth: .infinity, alignment: isArabic ? .trailing : .leading)
+                    }
+                    .frame(maxWidth: .infinity, alignment: isArabic ? .trailing : .leading)
+                    .environment(\.layoutDirection, .leftToRight)
 
                     if !subtitle.isEmpty {
                         Divider()
                         sectionTitle(isArabic ? "حول التطبيق" : "About this app")
-                        Text(subtitle).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: isArabic ? .trailing : .leading)
+                        Text(subtitle).foregroundStyle(.secondary).multilineTextAlignment(isArabic ? .trailing : .leading).frame(maxWidth: .infinity, alignment: isArabic ? .trailing : .leading).environment(\.layoutDirection, .leftToRight)
                     }
 
                     if !similar.isEmpty {
@@ -839,8 +830,50 @@ private struct NativeAppSheetSwiftUIView: View {
         .navigationViewStyle(StackNavigationViewStyle())
     }
 
+    @ViewBuilder private var appHeader: some View {
+        if isArabic {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .trailing, spacing: 7) {
+                    Text(name).font(.title2.bold()).lineLimit(2)
+                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    if !subtitle.isEmpty {
+                        Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(3)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                    actionButton.frame(minWidth: 148, alignment: .trailing)
+                }
+                appIcon
+            }
+            .environment(\.layoutDirection, .leftToRight)
+        } else {
+            HStack(alignment: .top, spacing: 16) {
+                appIcon
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(name).font(.title2.bold()).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    if !subtitle.isEmpty { Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(3).frame(maxWidth: .infinity, alignment: .leading) }
+                    actionButton.frame(minWidth: 148, alignment: .leading)
+                }
+            }
+            .environment(\.layoutDirection, .leftToRight)
+        }
+    }
+
+    private var appIcon: some View {
+        AsyncImage(url: iconURL) { phase in
+            if let image = phase.image { image.resizable().scaledToFill() }
+            else { Image(systemName: "app.fill").font(.system(size: 42)).frame(maxWidth: .infinity, maxHeight: .infinity) }
+        }
+        .frame(width: 104, height: 104)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
     private func sectionTitle(_ text: String) -> some View {
-        Text(text).font(.title3.bold()).frame(maxWidth: .infinity, alignment: isArabic ? .trailing : .leading)
+        Text(text)
+            .font(.title3.bold())
+            .frame(maxWidth: .infinity, alignment: isArabic ? .trailing : .leading)
+            .environment(\.layoutDirection, .leftToRight)
     }
 
     private func relatedShelf(_ items: [[String: Any]]) -> some View {
@@ -866,10 +899,10 @@ private struct NativeAppSheetSwiftUIView: View {
             Button { action("pause") } label: { Label(isArabic ? "إيقاف مؤقت" : "Pause", systemImage: "pause.fill") }
                 .modifier(NativeProminentGlassButtonModifier())
         } else if hasFile {
-            Button { action("sign"); dismiss() } label: { Text(isArabic ? "توقيع" : "Sign").frame(minWidth: 105) }
+            Button { action("sign"); dismiss() } label: { Text(isArabic ? "توقيع" : "Sign").frame(minWidth: 132) }
                 .modifier(NativeProminentGlassButtonModifier())
         } else {
-            Button { action("download") } label: { Label(isArabic ? "تنزيل" : "GET", systemImage: "arrow.down.circle.fill").frame(minWidth: 105) }
+            Button { action("download") } label: { Label(isArabic ? "تنزيل" : "GET", systemImage: "arrow.down.circle.fill").frame(minWidth: 132) }
                 .modifier(NativeProminentGlassButtonModifier())
         }
     }

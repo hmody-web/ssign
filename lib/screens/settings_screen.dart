@@ -234,6 +234,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String subtitle,
     required VoidCallback onTap,
   }) => NativeIOSButton(
+        key: ValueKey('appearance-$title-$selected'),
         title: title,
         systemImage: selected ? 'checkmark.circle.fill' : null,
         onPressed: onTap,
