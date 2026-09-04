@@ -11,7 +11,7 @@ class IpaLibraryService {
   static const String _alsarayApi = 'https://scrptaty.com/apps/alsaray/api.php';
   static const String _zsignSource = 'https://appiraq.com/han.json';
   static const String _appstarApi = 'https://appstar.app/my/get-7md/Api.php';
-  static const String _nsignApi = 'https://night-script.top/my/get-7md/Api.php';
+  static const String _nsignApi = 'https://ipasoon.icu/apps.php';
   static const String _nsignDownloadApi = 'https://night-script.top/my/get-7md/Apichid.php';
 
   List<RemoteApp>? _zsignCache;
@@ -81,9 +81,6 @@ class IpaLibraryService {
         loadCustom(),
         sources.isEnabled('nsign') ? safeApps(_fetchNsignSearch(term)) : Future<List<RemoteApp>>.value(const <RemoteApp>[]),
         sources.isEnabled('appstar') ? safeApps(_fetchAppstarSearch(term)) : Future<List<RemoteApp>>.value(const <RemoteApp>[]),
-        sources.isEnabled('iosboom')
-            ? safeApps(_fetchIosBoomApps(offset: 0, limit: safeOffset + safeLimit, search: term))
-            : Future<List<RemoteApp>>.value(const <RemoteApp>[]),
       ]);
       final merged = _dedupeApps(<RemoteApp>[
         ...(all[0] as List<RemoteApp>),
@@ -91,7 +88,6 @@ class IpaLibraryService {
         ...(all[2] as List<RemoteApp>),
         ...(all[3] as List<RemoteApp>),
         ...(all[4] as List<RemoteApp>),
-        ...(all[5] as List<RemoteApp>),
       ]);
       if (safeOffset >= merged.length) return const <RemoteApp>[];
       return merged.skip(safeOffset).take(safeLimit).toList();
@@ -114,7 +110,7 @@ class IpaLibraryService {
     final prefixCount = prefixApps.length;
     final nsignStart = prefixCount;
     final appstarStart = nsignStart + nsignCount;
-    final iosBoomStart = appstarStart + appstarCount;
+    final libraryEnd = appstarStart + appstarCount;
     final result = <RemoteApp>[];
     var cursor = safeOffset;
 
@@ -137,25 +133,17 @@ class IpaLibraryService {
       }
     }
 
-    if (cursor < iosBoomStart && result.length < safeLimit && appstarCount > 0) {
+    if (cursor < libraryEnd && result.length < safeLimit && appstarCount > 0) {
       final appstarOffset = (cursor - appstarStart).clamp(0, appstarCount).toInt();
       final take = (safeLimit - result.length).clamp(0, appstarCount - appstarOffset).toInt();
       try {
         final rows = await _fetchAppstarSlice(offset: appstarOffset, limit: take);
         result.addAll(rows);
         cursor += rows.length;
-        if (rows.length < take) cursor = iosBoomStart;
+        if (rows.length < take) cursor = libraryEnd;
       } catch (_) {
-        cursor = iosBoomStart;
+        cursor = libraryEnd;
       }
-    }
-
-    final remaining = safeLimit - result.length;
-    if (remaining > 0 && sources.isEnabled('iosboom')) {
-      final iosBoomOffset = cursor <= iosBoomStart ? 0 : cursor - iosBoomStart;
-      try {
-        result.addAll(await _fetchIosBoomApps(offset: iosBoomOffset, limit: remaining, search: ''));
-      } catch (_) {}
     }
 
     return _dedupeApps(result);
@@ -190,8 +178,6 @@ class IpaLibraryService {
           return all.skip(offset).take(limit).toList();
         }
         return _fetchAppstarSlice(offset: offset, limit: limit);
-      case 'iosboom':
-        return _fetchIosBoomApps(offset: offset, limit: limit, search: search);
       case 'custom':
         final all = await _fetchCustomSource(source, search: search);
         return all.skip(offset).take(limit).toList();
@@ -341,14 +327,14 @@ class IpaLibraryService {
           }
         }
 
-        final name = _firstText(source, const ['name', 'title']);
+        final name = _firstText(source, const ['name', 'title', 'displayName', 'appName']);
         final bundleId = _firstText(
           source,
-          const ['bundleIdentifier', 'bundle_id', 'bundleId'],
+          const ['bundleIdentifier', 'bundleID', 'bundle_id', 'bundleId', 'identifier'],
         );
         final appVersion = _firstText(
           version,
-          const ['version', 'versionString', 'shortVersion'],
+          const ['version', 'versionString', 'shortVersion', 'bundleVersion'],
           fallback: _firstText(source, const ['version', 'versionString']),
         );
         final developer = _firstText(
@@ -368,7 +354,7 @@ class IpaLibraryService {
           const ['category', 'categoryName', 'genre'],
         );
         final icon = _absoluteUrl(
-          _firstText(source, const ['iconURL', 'iconUrl', 'icon_url', 'icon']),
+          _firstText(source, const ['iconURL', 'iconUrl', 'icon_url', 'icon', 'image', 'imageURL', 'artworkURL']),
           base: uri,
         );
         final download = _absoluteUrl(
@@ -581,7 +567,7 @@ class IpaLibraryService {
       if (raw is! Map) continue;
       final source = Map<String, dynamic>.from(raw);
 
-      final name = _firstText(source, const ['name', 'title']);
+      final name = _firstText(source, const ['name', 'title', 'displayName', 'appName']);
       final sourceId = _firstText(source, const ['id', 'appID', 'identifier', 'slug']);
       final bundleId = _firstText(
         source,
@@ -697,14 +683,50 @@ class IpaLibraryService {
   }
 
   List<dynamic> _customAppsList(dynamic decoded) {
-    if (decoded is List) return decoded;
-    if (decoded is Map) {
-      if (decoded['apps'] is List) return decoded['apps'] as List;
-      if (decoded['data'] is List) return decoded['data'] as List;
-      final data = decoded['data'];
-      if (data is Map && data['apps'] is List) return data['apps'] as List;
+    final direct = _findAppList(decoded);
+    if (direct != null) return direct;
+    throw const FormatException(
+      'صيغة المصدر غير مدعومة. يدعم بومة JSON العادي وAltStore وFeather وقوائم apps/data/items/results/packages',
+    );
+  }
+
+  List<dynamic>? _findAppList(dynamic value, {int depth = 0}) {
+    if (depth > 5) return null;
+    if (value is List) {
+      if (value.isEmpty) return value;
+      final maps = value.whereType<Map>().toList();
+      if (maps.isNotEmpty && maps.any(_looksLikeAppMap)) return value;
+      for (final item in value) {
+        final found = _findAppList(item, depth: depth + 1);
+        if (found != null && found.isNotEmpty) return found;
+      }
+      return maps.isNotEmpty ? value : null;
     }
-    throw const FormatException('صيغة المصدر غير مدعومة. يجب أن يحتوي JSON على قائمة apps');
+    if (value is Map) {
+      final map = Map<String, dynamic>.from(value);
+      for (final key in const [
+        'apps', 'applications', 'items', 'results', 'packages', 'releases',
+        'data', 'catalog', 'library', 'repository', 'source',
+      ]) {
+        if (!map.containsKey(key)) continue;
+        final found = _findAppList(map[key], depth: depth + 1);
+        if (found != null) return found;
+      }
+      for (final nested in map.values) {
+        final found = _findAppList(nested, depth: depth + 1);
+        if (found != null && found.isNotEmpty) return found;
+      }
+    }
+    return null;
+  }
+
+  bool _looksLikeAppMap(Map value) {
+    final keys = value.keys.map((e) => e.toString().toLowerCase()).toSet();
+    final hasName = keys.contains('name') || keys.contains('title');
+    final hasBundle = keys.contains('bundleidentifier') || keys.contains('bundleid') || keys.contains('bundle_id');
+    final hasDownload = keys.any((k) => k.contains('download') || k.contains('ipa') || k == 'url');
+    final hasVersion = keys.contains('version') || keys.contains('versions');
+    return hasName && (hasBundle || hasDownload || hasVersion);
   }
 
   List<RemoteApp> _parseCustomApps(
@@ -723,7 +745,7 @@ class IpaLibraryService {
         versionData = Map<String, dynamic>.from(versions.first as Map);
       }
 
-      final name = _firstText(source, const ['name', 'title']);
+      final name = _firstText(source, const ['name', 'title', 'displayName', 'appName']);
       final bundleId = _firstText(source, const ['bundleIdentifier', 'bundleID', 'bundle_id', 'bundleId']);
       final sourceId = _firstText(source, const ['id', 'slug', 'identifier']);
       final appVersion = _firstText(
@@ -743,13 +765,13 @@ class IpaLibraryService {
       final developer = _firstText(source, const ['developerName', 'developer_name', 'developer', 'author']);
       final category = _firstText(source, const ['category_ar', 'category_en', 'category', 'categoryName', 'genre']);
       final icon = _absoluteUrl(
-        _firstText(source, const ['iconURL', 'iconUrl', 'icon_url', 'icon']),
+        _firstText(source, const ['iconURL', 'iconUrl', 'icon_url', 'icon', 'image', 'imageURL', 'artworkURL']),
         base: base,
       );
       final download = _absoluteUrl(
         _firstText(
           versionData,
-          const ['downloadURL', 'downloadUrl', 'download_url', 'url', 'ipa_url'],
+          const ['downloadURL', 'downloadUrl', 'download_url', 'url', 'ipa_url', 'ipaUrl', 'file', 'fileURL', 'link'],
           fallback: _firstText(source, const ['downloadURL', 'downloadUrl', 'download_url', 'dohaveURL', 'url', 'ipa_url']),
         ),
         base: base,
@@ -935,7 +957,7 @@ class IpaLibraryService {
       if (raw is! Map) continue;
       final source = Map<String, dynamic>.from(raw);
 
-      final name = _firstText(source, const ['name', 'title']);
+      final name = _firstText(source, const ['name', 'title', 'displayName', 'appName']);
       final bundleId = _firstText(
         source,
         const ['bundleID', 'bundle_id', 'bundleIdentifier', 'bundleId'],
@@ -1124,68 +1146,8 @@ class IpaLibraryService {
     return urls;
   }
 
-  Future<List<RemoteApp>> _fetchIosBoomApps({
-    required int offset,
-    required int limit,
-    String search = '',
-  }) async {
-    if (limit <= 0) return const <RemoteApp>[];
-
-    final query = <String, String>{
-      'offset': '$offset',
-      'limit': '$limit',
-    };
-
-    final term = search.trim();
-    if (term.isNotEmpty) query['search'] = term;
-
-    final uri = Uri.parse('$_proxyBase/library.php').replace(
-      queryParameters: query,
-    );
-
-    final response = await _jsonGet(uri);
-    final body = await utf8.decoder.bind(response).join();
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException(
-        _extractError(
-          body,
-          fallback: 'تعذر تحميل مكتبة التطبيقات (${response.statusCode})',
-        ),
-        uri: uri,
-      );
-    }
-
-    dynamic decoded;
-    try {
-      decoded = jsonDecode(body);
-    } catch (_) {
-      throw const FormatException('استجابة المكتبة غير صالحة');
-    }
-
-    if (decoded is Map && decoded['ok'] == false) {
-      throw HttpException(
-        (decoded['detail'] ??
-                decoded['error'] ??
-                'تعذر تحميل مكتبة التطبيقات')
-            .toString(),
-        uri: uri,
-      );
-    }
-
-    if (decoded is! List) {
-      throw const FormatException('استجابة المكتبة غير صالحة');
-    }
-
-    return decoded
-        .whereType<Map>()
-        .map((e) => RemoteApp.fromJson(Map<String, dynamic>.from(e)))
-        .toList();
-  }
-
-
   Future<List<String>> fetchBoomaCategories({int sampleSize = 240}) async {
-    final apps = await _fetchIosBoomApps(offset: 0, limit: sampleSize, search: '');
+    final apps = await fetchApps(offset: 0, limit: sampleSize, search: '');
     final categories = apps
         .map((app) => app.category.trim())
         .where((category) => category.isNotEmpty)
@@ -1269,6 +1231,12 @@ class IpaLibraryService {
 
 
   Future<Uri> _resolveNsignDownload(RemoteApp app) async {
+    // Cinema Max is part of the NSign/iPAsOON catalogue but its public catalog
+    // row intentionally omits a download URL. Keep the verified installation
+    // package as a direct fallback so the app can always be downloaded.
+    if (app.bundleId == 'ipasoon.Cinema-Max') {
+      return Uri.parse('https://night-script.top/js/output/4262_HSBCBankplc_CinemaMax_10_ipasoonCinemaMax.signed.ipa');
+    }
     final sourceId = app.slug.trim().isNotEmpty
         ? app.slug.trim()
         : app.id.replaceFirst(RegExp(r'^nsign:'), '');
@@ -1365,7 +1333,7 @@ class IpaLibraryService {
         '${safeName.isEmpty ? 'Application' : safeName}${safeVersion.isEmpty ? '' : '-$safeVersion'}-${DateTime.now().millisecondsSinceEpoch}.ipa';
     final file = File(p.join(dir.path, filename));
 
-    // First try: latest direct GitHub/release URL returned by iOSBoom.
+    // First try: use the latest direct URL returned by the active source.
     var directUri = await resolveDownload(app);
     var result = await _downloadUrlToFile(
       directUri,

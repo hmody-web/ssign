@@ -71,9 +71,9 @@ class AppsScreen extends StatefulWidget {
 
 class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMixin {
   static const _nativeAppSheetChannel = MethodChannel('booma/native_app_sheet_channel');
-  static const _pageSize = 20;
-  static const _cacheKey = 'ipa.library.cache.v3.merged';
-  static const _cacheSyncKey = 'ipa.library.cache.synced.v3.merged';
+  static const _pageSize = 60;
+  static const _cacheKey = 'ipa.library.cache.v4.merged';
+  static const _cacheSyncKey = 'ipa.library.cache.synced.v4.merged';
   static const _syncEvery = Duration(minutes: 5);
 
   final _service = IpaLibraryService();
@@ -336,7 +336,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   }
 
   void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 500) {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 1400) {
       _loadMore();
     }
   }
@@ -420,7 +420,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     final current = sourceId != null
         ? (_sourceResults ?? const <RemoteApp>[])
         : (term.isEmpty ? _apps : (_searchResults ?? const <RemoteApp>[]));
-    setState(() => _loadingMore = true);
+    _loadingMore = true;
     try {
       final items = await _service.fetchApps(
         offset: current.length,
@@ -450,7 +450,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     } catch (_) {
       // Preserve current content.
     } finally {
-      if (mounted) setState(() => _loadingMore = false);
+      _loadingMore = false;
     }
   }
 
@@ -804,11 +804,8 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(18, 4, 18, 120),
               sliver: SliverList.builder(
-                itemCount: apps.length + (_loadingMore ? 1 : 0),
+                itemCount: apps.length,
                 itemBuilder: (context, index) {
-                  if (index == apps.length) {
-                    return const Padding(padding: EdgeInsets.symmetric(vertical: 18), child: Center(child: CupertinoActivityIndicator()));
-                  }
                   final app = apps[index];
                   return _AppDownloadStateBuilder(
                     app: app,
@@ -1023,7 +1020,7 @@ class _FeaturedCarouselState extends State<_FeaturedCarousel> {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        height: 215,
+        height: 228,
         child: PageView.builder(
           controller: _controller,
           physics: const BouncingScrollPhysics(),
@@ -1060,16 +1057,14 @@ class _FeaturedBannerCard extends StatefulWidget {
   State<_FeaturedBannerCard> createState() => _FeaturedBannerCardState();
 }
 
-class _FeaturedBannerCardState extends State<_FeaturedBannerCard> with SingleTickerProviderStateMixin {
+class _FeaturedBannerCardState extends State<_FeaturedBannerCard> {
   Timer? _timer;
-  late final AnimationController _shineController;
   int _image = 0;
 
   @override
   void initState() {
     super.initState();
-    _shineController = AnimationController(vsync: this, duration: const Duration(milliseconds: 2900))..repeat();
-    _timer = Timer.periodic(const Duration(seconds: 4), (_) {
+    _timer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!mounted || widget.app.screenshots.length < 2) return;
       setState(() => _image = (_image + 1) % widget.app.screenshots.length);
     });
@@ -1078,7 +1073,6 @@ class _FeaturedBannerCardState extends State<_FeaturedBannerCard> with SingleTic
   @override
   void dispose() {
     _timer?.cancel();
-    _shineController.dispose();
     super.dispose();
   }
 
@@ -1086,6 +1080,8 @@ class _FeaturedBannerCardState extends State<_FeaturedBannerCard> with SingleTic
   Widget build(BuildContext context) {
     final app = widget.app;
     final subtitle = app.displaySubtitle(widget.isArabic);
+    final screenshot = app.screenshots.isEmpty ? '' : app.screenshots[_image % app.screenshots.length];
+    final primary = Theme.of(context).colorScheme.primary;
     return GestureDetector(
       onTap: widget.onTap,
       child: ClipRRect(
@@ -1093,98 +1089,94 @@ class _FeaturedBannerCardState extends State<_FeaturedBannerCard> with SingleTic
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Container(color: Colors.black),
-            Positioned.fill(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 900),
-                switchInCurve: Curves.easeOutCubic,
-                child: SizedBox.expand(
+            Container(color: Theme.of(context).colorScheme.surfaceContainerHighest),
+            if (screenshot.isNotEmpty)
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 320),
+                child: Image.network(
+                  screenshot,
                   key: ValueKey('${app.id}-$_image'),
-                  child: Image.network(
-                    app.screenshots[_image],
-                    fit: BoxFit.cover,
-                    alignment: Alignment.center,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                  ),
+                  fit: BoxFit.cover,
+                  alignment: Alignment.center,
+                  filterQuality: FilterQuality.low,
+                  errorBuilder: (_, __, ___) => Image.asset('assets/images/noicon.jpg', fit: BoxFit.cover),
                 ),
-              ),
-            ),
+              )
+            else
+              Image.asset('assets/images/noicon.jpg', fit: BoxFit.cover),
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  begin: widget.isArabic ? Alignment.centerRight : Alignment.centerLeft,
-                  end: widget.isArabic ? Alignment.centerLeft : Alignment.centerRight,
-                  colors: const [Color.fromARGB(164, 0, 0, 0), Color.fromARGB(134, 0, 0, 0), Color(0x66000000), Color(0x12000000)],
-                  stops: const [0, .42, .72, 1],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.black.withValues(alpha: .08), Colors.black.withValues(alpha: .14), Colors.black.withValues(alpha: .50)],
+                  stops: const [0, .45, 1],
                 ),
               ),
             ),
-            AnimatedBuilder(
-              animation: _shineController,
-              builder: (context, _) {
-                final t = _shineController.value;
-                final travel = 1.5 - (3.0 * t);
-                return Stack(
-                  fit: StackFit.expand,
+            PositionedDirectional(
+              top: 13,
+              start: 14,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: .32),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.white.withValues(alpha: .12), width: .6),
+                ),
+                child: Text(
+                  widget.isArabic ? '✦ مميّز في بومة' : '✦ BOOMA PICK',
+                  style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+            PositionedDirectional(
+              start: 12,
+              end: 12,
+              bottom: 12,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(13, 12, 13, 12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: .48),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: Colors.white.withValues(alpha: .13), width: .7),
+                ),
+                child: Row(
                   children: [
-                    Transform.translate(
-                      offset: Offset(MediaQuery.sizeOf(context).width * travel, -70 + 180 * t),
-                      child: Transform.rotate(
-                        angle: -.72,
-                        child: Container(
-                          width: 62,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Colors.white.withValues(alpha: 0), Colors.white.withValues(alpha: .06), Colors.white.withValues(alpha: .20), Colors.white.withValues(alpha: .06), Colors.white.withValues(alpha: 0)],
-                            ),
+                    _NetworkAppIcon(url: app.iconUrl, size: 56, radius: 14),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            app.displayName(widget.isArabic),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.white, fontSize: 17.5, fontWeight: FontWeight.w900),
                           ),
-                        ),
+                          if (subtitle.isNotEmpty) ...[
+                            const SizedBox(height: 3),
+                            Text(
+                              subtitle,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 11.5, height: 1.25, fontWeight: FontWeight.w500),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(28),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(color: primary.withValues(alpha: .18), borderRadius: BorderRadius.circular(14)),
+                      child: Text(
+                        app.version.isEmpty ? tr('جديد', 'New') : 'v${app.version}',
+                        style: TextStyle(color: primary, fontSize: 10.5, fontWeight: FontWeight.w900),
                       ),
                     ),
                   ],
-                );
-              },
-            ),
-            Padding(
-              padding: const EdgeInsets.all(18),
-              child: Align(
-                alignment: widget.isArabic ? Alignment.centerRight : Alignment.centerLeft,
-                child: SizedBox(
-                  width: 205,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          _NetworkAppIcon(url: app.iconUrl, size: 58, radius: 14),
-                          const SizedBox(width: 11),
-                          Expanded(
-                            child: Text(app.displayName(widget.isArabic), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w900, height: 1.12)),
-                          ),
-                        ],
-                      ),
-                      if (subtitle.isNotEmpty) ...[
-                        const SizedBox(height: 11),
-                        Text(subtitle, maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.white.withValues(alpha: .82), fontSize: 12.5, height: 1.45, fontWeight: FontWeight.w500)),
-                      ],
-                      const SizedBox(height: 13),
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(color: Colors.white.withValues(alpha: .16), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.white.withValues(alpha: .18))),
-                            child: Text(app.version.isEmpty ? tr('جديد', 'New') : 'v${app.version}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
                 ),
               ),
             ),

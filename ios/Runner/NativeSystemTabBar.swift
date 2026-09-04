@@ -753,7 +753,8 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
 
         root.frame = frame
         root.backgroundColor = .secondarySystemBackground
-        root.layer.cornerRadius = 24
+        root.layer.cornerRadius = 28
+        root.layer.cornerCurve = .continuous
         root.clipsToBounds = true
         root.semanticContentAttribute = isArabic ? .forceRightToLeft : .forceLeftToRight
         root.addTarget(self, action: #selector(tapped), for: .touchUpInside)
@@ -761,86 +762,152 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
         let bg = UIImageView(frame: root.bounds)
         bg.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         bg.contentMode = .scaleAspectFill
-        bg.backgroundColor = .black
+        bg.backgroundColor = .tertiarySystemBackground
         bg.isUserInteractionEnabled = false
         root.addSubview(bg)
         backgroundImage = bg
         loadBannerImage()
 
-        let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
-        blur.translatesAutoresizingMaskIntoConstraints = false
-        blur.alpha = 0.66
-        blur.isUserInteractionEnabled = false
-        root.addSubview(blur)
+        // A subtle cinematic shade keeps screenshots vivid while preserving text contrast.
         let shade = UIView()
         shade.translatesAutoresizingMaskIntoConstraints = false
-        shade.backgroundColor = UIColor.black.withAlphaComponent(0.11)
+        shade.backgroundColor = UIColor.black.withAlphaComponent(0.12)
         shade.isUserInteractionEnabled = false
         root.addSubview(shade)
+
+        // Floating system-material panel: cleaner than blurring the entire banner.
+        let infoGlass = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterialDark))
+        infoGlass.translatesAutoresizingMaskIntoConstraints = false
+        infoGlass.layer.cornerRadius = 22
+        infoGlass.layer.cornerCurve = .continuous
+        infoGlass.clipsToBounds = true
+        infoGlass.isUserInteractionEnabled = false
+        root.addSubview(infoGlass)
+
+        let accent = UIView()
+        accent.translatesAutoresizingMaskIntoConstraints = false
+        accent.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.85)
+        accent.layer.cornerRadius = 2
+        accent.isUserInteractionEnabled = false
+        infoGlass.contentView.addSubview(accent)
 
         let icon = UIImageView()
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.contentMode = .scaleAspectFill
-        icon.layer.cornerRadius = 15
+        icon.layer.cornerRadius = 14
+        icon.layer.cornerCurve = .continuous
         icon.clipsToBounds = true
-        icon.backgroundColor = UIColor.white.withAlphaComponent(0.12)
+        icon.backgroundColor = UIColor.white.withAlphaComponent(0.10)
+        icon.layer.borderWidth = 0.7
+        icon.layer.borderColor = UIColor.white.withAlphaComponent(0.16).cgColor
         loadRemoteImage(app["iconUrl"] as? String, into: icon)
 
         let title = UILabel()
         title.translatesAutoresizingMaskIntoConstraints = false
         title.text = app["displayName"] as? String ?? ""
-        title.font = .preferredFont(forTextStyle: .title2)
+        title.font = UIFont.systemFont(ofSize: 18, weight: .bold)
         title.textColor = .white
-        title.numberOfLines = 2
+        title.numberOfLines = 1
+        title.adjustsFontSizeToFitWidth = true
+        title.minimumScaleFactor = 0.82
         title.textAlignment = isArabic ? .right : .left
 
         let subtitle = UILabel()
         subtitle.translatesAutoresizingMaskIntoConstraints = false
         subtitle.text = app["displaySubtitle"] as? String ?? ""
-        subtitle.font = .preferredFont(forTextStyle: .subheadline)
-        subtitle.textColor = UIColor.white.withAlphaComponent(0.82)
-        subtitle.numberOfLines = 3
+        subtitle.font = UIFont.systemFont(ofSize: 11.5, weight: .medium)
+        subtitle.textColor = UIColor.white.withAlphaComponent(0.70)
+        subtitle.numberOfLines = 2
         subtitle.textAlignment = isArabic ? .right : .left
 
-        let version = UIButton(type: .system)
+        let version = UILabel()
         version.translatesAutoresizingMaskIntoConstraints = false
-        var vc: UIButton.Configuration
-        if #available(iOS 26.0, *) { vc = .glass() } else { vc = .tinted() }
-        vc.title = ((app["version"] as? String)?.isEmpty == false) ? "v\(app["version"] as? String ?? "")" : (isArabic ? "جديد" : "New")
-        vc.cornerStyle = .capsule
-        version.configuration = vc
-        version.tintColor = .white
-        version.isUserInteractionEnabled = false
+        let versionText = app["version"] as? String ?? ""
+        version.text = versionText.isEmpty ? (isArabic ? "مختار لك" : "Featured") : "v\(versionText)"
+        version.font = UIFont.systemFont(ofSize: 10.5, weight: .bold)
+        version.textColor = UIColor.systemBlue
+        version.textAlignment = .center
+        version.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.16)
+        version.layer.cornerRadius = 11
+        version.layer.cornerCurve = .continuous
+        version.clipsToBounds = true
 
-        root.addSubview(icon); root.addSubview(title); root.addSubview(subtitle); root.addSubview(version)
+        let pick = UILabel()
+        pick.translatesAutoresizingMaskIntoConstraints = false
+        pick.text = isArabic ? "✦  مميّز في بومة" : "✦  BOOMA PICK"
+        pick.font = UIFont.systemFont(ofSize: 10.5, weight: .bold)
+        pick.textColor = .white
+        pick.textAlignment = .center
+        pick.backgroundColor = UIColor.black.withAlphaComponent(0.30)
+        pick.layer.cornerRadius = 13
+        pick.layer.cornerCurve = .continuous
+        pick.clipsToBounds = true
+        root.addSubview(pick)
+
+        infoGlass.contentView.addSubview(icon)
+        infoGlass.contentView.addSubview(title)
+        infoGlass.contentView.addSubview(subtitle)
+        infoGlass.contentView.addSubview(version)
+
         NSLayoutConstraint.activate([
-            blur.leadingAnchor.constraint(equalTo: root.leadingAnchor), blur.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            blur.topAnchor.constraint(equalTo: root.topAnchor), blur.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            shade.leadingAnchor.constraint(equalTo: root.leadingAnchor), shade.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            shade.topAnchor.constraint(equalTo: root.topAnchor), shade.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 62), icon.heightAnchor.constraint(equalToConstant: 62),
-            title.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor, multiplier: 0.53),
-            subtitle.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor, multiplier: 0.60),
-            version.heightAnchor.constraint(greaterThanOrEqualToConstant: 34)
+            shade.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            shade.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            shade.topAnchor.constraint(equalTo: root.topAnchor),
+            shade.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+
+            infoGlass.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12),
+            infoGlass.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
+            infoGlass.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -12),
+            infoGlass.heightAnchor.constraint(equalToConstant: 96),
+
+            accent.widthAnchor.constraint(equalToConstant: 3),
+            accent.topAnchor.constraint(equalTo: infoGlass.contentView.topAnchor, constant: 13),
+            accent.bottomAnchor.constraint(equalTo: infoGlass.contentView.bottomAnchor, constant: -13),
+
+            icon.widthAnchor.constraint(equalToConstant: 58),
+            icon.heightAnchor.constraint(equalToConstant: 58),
+            icon.centerYAnchor.constraint(equalTo: infoGlass.contentView.centerYAnchor),
+
+            version.heightAnchor.constraint(equalToConstant: 23),
+            version.widthAnchor.constraint(greaterThanOrEqualToConstant: 52),
+
+            pick.topAnchor.constraint(equalTo: root.topAnchor, constant: 13),
+            pick.heightAnchor.constraint(equalToConstant: 27),
+            pick.widthAnchor.constraint(greaterThanOrEqualToConstant: 94),
         ])
+
         if isArabic {
             NSLayoutConstraint.activate([
-                icon.rightAnchor.constraint(equalTo: root.rightAnchor, constant: -20), icon.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
-                title.rightAnchor.constraint(equalTo: icon.leftAnchor, constant: -14), title.leftAnchor.constraint(greaterThanOrEqualTo: root.leftAnchor, constant: 20), title.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
-                subtitle.rightAnchor.constraint(equalTo: icon.leftAnchor, constant: -14), subtitle.leftAnchor.constraint(greaterThanOrEqualTo: root.leftAnchor, constant: 20), subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 8),
-                version.rightAnchor.constraint(equalTo: icon.leftAnchor, constant: -14), version.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 14)
+                accent.rightAnchor.constraint(equalTo: infoGlass.contentView.rightAnchor, constant: -9),
+                icon.rightAnchor.constraint(equalTo: accent.leftAnchor, constant: -10),
+                title.rightAnchor.constraint(equalTo: icon.leftAnchor, constant: -12),
+                title.leftAnchor.constraint(equalTo: infoGlass.contentView.leftAnchor, constant: 12),
+                title.topAnchor.constraint(equalTo: infoGlass.contentView.topAnchor, constant: 16),
+                subtitle.rightAnchor.constraint(equalTo: title.rightAnchor),
+                subtitle.leftAnchor.constraint(equalTo: title.leftAnchor),
+                subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 4),
+                version.leftAnchor.constraint(equalTo: infoGlass.contentView.leftAnchor, constant: 12),
+                version.bottomAnchor.constraint(equalTo: infoGlass.contentView.bottomAnchor, constant: -10),
+                pick.rightAnchor.constraint(equalTo: root.rightAnchor, constant: -14),
             ])
         } else {
             NSLayoutConstraint.activate([
-                icon.leftAnchor.constraint(equalTo: root.leftAnchor, constant: 20), icon.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
-                title.leftAnchor.constraint(equalTo: icon.rightAnchor, constant: 14), title.rightAnchor.constraint(lessThanOrEqualTo: root.rightAnchor, constant: -20), title.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
-                subtitle.leftAnchor.constraint(equalTo: icon.rightAnchor, constant: 14), subtitle.rightAnchor.constraint(lessThanOrEqualTo: root.rightAnchor, constant: -20), subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 8),
-                version.leftAnchor.constraint(equalTo: icon.rightAnchor, constant: 14), version.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 14)
+                accent.leftAnchor.constraint(equalTo: infoGlass.contentView.leftAnchor, constant: 9),
+                icon.leftAnchor.constraint(equalTo: accent.rightAnchor, constant: 10),
+                title.leftAnchor.constraint(equalTo: icon.rightAnchor, constant: 12),
+                title.rightAnchor.constraint(equalTo: infoGlass.contentView.rightAnchor, constant: -12),
+                title.topAnchor.constraint(equalTo: infoGlass.contentView.topAnchor, constant: 16),
+                subtitle.leftAnchor.constraint(equalTo: title.leftAnchor),
+                subtitle.rightAnchor.constraint(equalTo: title.rightAnchor),
+                subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 4),
+                version.rightAnchor.constraint(equalTo: infoGlass.contentView.rightAnchor, constant: -12),
+                version.bottomAnchor.constraint(equalTo: infoGlass.contentView.bottomAnchor, constant: -10),
+                pick.leftAnchor.constraint(equalTo: root.leftAnchor, constant: 14),
             ])
         }
 
         if imageURLs.count > 1 {
-            timer = Timer.scheduledTimer(withTimeInterval: 4.5, repeats: true) { [weak self] _ in
+            timer = Timer.scheduledTimer(withTimeInterval: 5.2, repeats: true) { [weak self] _ in
                 guard let self else { return }
                 self.imageIndex = (self.imageIndex + 1) % self.imageURLs.count
                 self.loadBannerImage(animated: true)
@@ -851,7 +918,11 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
     deinit { timer?.invalidate() }
 
     private func loadBannerImage(animated: Bool = false) {
-        guard !imageURLs.isEmpty, let url = URL(string: imageURLs[imageIndex]) else { return }
+        guard !imageURLs.isEmpty, let url = URL(string: imageURLs[imageIndex]) else {
+            backgroundImage?.image = UIImage(named: "NoIcon")
+            backgroundImage?.contentMode = .scaleAspectFill
+            return
+        }
         let key = imageURLs[imageIndex]
         if let cached = BoomaImageCache.shared.image(for: key) {
             backgroundImage?.image = cached
@@ -862,11 +933,15 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
             BoomaImageCache.shared.store(image, for: key)
             DispatchQueue.main.async {
                 guard let view = self.backgroundImage else { return }
-                if animated { UIView.transition(with: view, duration: 0.45, options: .transitionCrossDissolve) { view.image = image } }
-                else { view.image = image }
+                if animated {
+                    UIView.transition(with: view, duration: 0.32, options: [.transitionCrossDissolve, .allowAnimatedContent]) { view.image = image }
+                } else {
+                    view.image = image
+                }
             }
         }.resume()
     }
+
     private func loadRemoteImage(_ raw: String?, into view: UIImageView) {
         view.image = UIImage(named: "NoIcon")
         guard let raw, let url = URL(string: raw), !raw.isEmpty else { return }
@@ -874,9 +949,12 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
         URLSession.shared.dataTask(with: url) { data, _, _ in
             guard let data, let image = UIImage(data: data) else { return }
             BoomaImageCache.shared.store(image, for: raw)
-            DispatchQueue.main.async { view.image = image }
+            DispatchQueue.main.async {
+                UIView.transition(with: view, duration: 0.20, options: .transitionCrossDissolve) { view.image = image }
+            }
         }.resume()
     }
+
     @objc private func tapped() { bridge.channel.invokeMethod("tap", arguments: nil) }
     func view() -> UIView { root }
 }

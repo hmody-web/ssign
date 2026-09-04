@@ -83,17 +83,9 @@ class LibrarySourcesStore extends ChangeNotifier {
       enabled: true,
     ),
     LibrarySourceConfig(
-      id: 'iosboom',
-      name: 'iOSBoom',
-      url: 'https://scrptaty.com/apps/ipa/library.php',
-      kind: 'iosboom',
-      builtIn: true,
-      enabled: true,
-    ),
-    LibrarySourceConfig(
       id: 'nsign',
       name: 'NSign',
-      url: 'https://night-script.top/my/get-7md/Api.php',
+      url: 'https://ipasoon.icu/apps.php',
       kind: 'nsign',
       builtIn: true,
       enabled: true,
@@ -143,6 +135,7 @@ class LibrarySourcesStore extends ChangeNotifier {
     for (final source in _sources) {
       if (source.id == id) return source.enabled;
     }
+    if (id == 'iosboom') return false;
     return true;
   }
 
@@ -213,6 +206,6 @@ class LibrarySourcesStore extends ChangeNotifier {
     if (storage == 'appstar' || appId.startsWith('appstar:')) return 'appstar';
     if (storage == 'nsign' || appId.startsWith('nsign:')) return 'nsign';
     if (storage == 'iosboom' || appId.startsWith('iosboom:')) return 'iosboom';
-    return 'iosboom';
+    return storage.isEmpty ? 'unknown' : storageType;
   }
 }

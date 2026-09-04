@@ -234,17 +234,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _sourcesCard(BuildContext context) => AnimatedBuilder(
         animation: LibrarySourcesStore.instance,
         builder: (context, _) {
-          final sourceStore = LibrarySourcesStore.instance;
-          final sources = sourceStore.sources;
+          final sources = LibrarySourcesStore.instance.sources;
           final enabledCount = sources.where((item) => item.enabled).length;
-          final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: .5);
+          final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: .50);
           final primary = Theme.of(context).colorScheme.primary;
-          return GlassCard(
-            padding: const EdgeInsets.fromLTRB(15, 15, 15, 13),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(24),
+              onTap: () => _openSourcesPage(context),
+              child: GlassCard(
+                padding: const EdgeInsets.fromLTRB(16, 15, 14, 15),
+                child: Row(
                   children: [
                     _tileIcon(context, CupertinoIcons.square_stack_3d_up_fill),
                     const SizedBox(width: 12),
@@ -256,11 +257,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             tr('مصادر التطبيقات', 'App Sources'),
                             style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
                           ),
-                          const SizedBox(height: 2),
+                          const SizedBox(height: 3),
                           Text(
                             tr(
-                              '$enabledCount من ${sources.length} مصادر ظاهرة في المكتبة',
-                              '$enabledCount of ${sources.length} sources are visible',
+                              '$enabledCount مصادر مفعّلة • اضغط للإدارة',
+                              '$enabledCount sources enabled • Tap to manage',
                             ),
                             style: TextStyle(fontSize: 12, color: muted),
                           ),
@@ -268,78 +269,133 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                       decoration: BoxDecoration(
-                        color: primary.withValues(alpha: .12),
-                        borderRadius: BorderRadius.circular(14),
+                        color: primary.withValues(alpha: .10),
+                        borderRadius: BorderRadius.circular(13),
                       ),
                       child: Text(
-                        '$enabledCount',
-                        style: TextStyle(color: primary, fontWeight: FontWeight.w900),
+                        '$enabledCount/${sources.length}',
+                        style: TextStyle(color: primary, fontWeight: FontWeight.w900, fontSize: 12),
                       ),
                     ),
+                    const SizedBox(width: 8),
+                    Icon(CupertinoIcons.chevron_forward, size: 17, color: muted),
                   ],
                 ),
-                const SizedBox(height: 13),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .035),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: .65)),
-                  ),
-                  child: Column(
-                    children: [
-                      for (var i = 0; i < sources.length; i++) ...[
-                        _sourceRow(context, sources[i]),
-                        if (i != sources.length - 1)
-                          Divider(
-                            height: 1,
-                            indent: 54,
-                            color: Theme.of(context).dividerColor.withValues(alpha: .65),
-                          ),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                NativeIOSButton(
-                  title: tr('إضافة مصدر', 'Add Source'),
-                  systemImage: 'plus.circle.fill',
-                  onPressed: () => _showAddSourceSheet(context),
-                  prominent: true,
-                  height: 48,
-                ),
-                const SizedBox(height: 9),
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => _showSourceHelp(context),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
+              ),
+            ),
+          );
+        },
+      );
+
+  Future<void> _openSourcesPage(BuildContext context) async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (pageContext) => Scaffold(
+          backgroundColor: Theme.of(pageContext).scaffoldBackgroundColor,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            centerTitle: true,
+            title: Text(tr('مصادر التطبيقات', 'App Sources'), style: const TextStyle(fontWeight: FontWeight.w900)),
+          ),
+          body: AnimatedBuilder(
+            animation: LibrarySourcesStore.instance,
+            builder: (context, _) {
+              final sourceStore = LibrarySourcesStore.instance;
+              final sources = sourceStore.sources;
+              final enabledCount = sources.where((item) => item.enabled).length;
+              final primary = Theme.of(context).colorScheme.primary;
+              final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: .50);
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 110),
+                children: [
+                  GlassCard(
+                    padding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(CupertinoIcons.info_circle, size: 14, color: primary),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            tr('كيف أضيف مكتبة تطبيقات عبر رابط URL؟', 'How do I add an app library using a URL?'),
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: primary,
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                            ),
+                        Container(
+                          width: 46,
+                          height: 46,
+                          decoration: BoxDecoration(
+                            color: primary.withValues(alpha: .12),
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          child: Icon(CupertinoIcons.antenna_radiowaves_left_right, color: primary, size: 22),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(tr('مكتبات بومة', 'Booma Libraries'), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+                              const SizedBox(height: 3),
+                              Text(
+                                tr('$enabledCount من ${sources.length} مصادر ظاهرة حالياً', '$enabledCount of ${sources.length} sources are currently visible'),
+                                style: TextStyle(fontSize: 12, color: muted),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-              ],
-            ),
-          );
-        },
-      );
+                  const SizedBox(height: 14),
+                  GlassCard(
+                    padding: const EdgeInsets.symmetric(vertical: 5),
+                    child: Column(
+                      children: [
+                        for (var i = 0; i < sources.length; i++) ...[
+                          _sourceRow(context, sources[i]),
+                          if (i != sources.length - 1)
+                            Divider(height: 1, indent: 56, color: Theme.of(context).dividerColor.withValues(alpha: .68)),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  NativeIOSButton(
+                    title: tr('إضافة مصدر جديد', 'Add New Source'),
+                    systemImage: 'plus.circle.fill',
+                    onPressed: () => _showAddSourceSheet(context),
+                    prominent: true,
+                    height: 50,
+                  ),
+                  const SizedBox(height: 10),
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(18),
+                      onTap: () => _showSourceHelp(context),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(CupertinoIcons.info_circle_fill, size: 15, color: primary),
+                            const SizedBox(width: 7),
+                            Flexible(
+                              child: Text(
+                                tr('طريقة إضافة أي مكتبة JSON عبر رابط URL', 'How to add a JSON library using a URL'),
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: primary, fontSize: 12, fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _sourceRow(BuildContext context, LibrarySourceConfig source) {
     final primary = Theme.of(context).colorScheme.primary;
@@ -462,7 +518,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Text(tr('إضافة مصدر جديد', 'Add a New Source'), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
                           const SizedBox(height: 2),
                           Text(
-                            tr('أضف رابط JSON لمكتبة تطبيقات موثوقة.', 'Add a JSON URL for a trusted app library.'),
+                            tr('ألصق رابط المكتبة؛ بومة يحاول التعرّف تلقائياً على أشهر صيغ JSON.', 'Paste a library URL; Booma automatically detects common JSON source formats.'),
                             style: TextStyle(fontSize: 11.5, color: Theme.of(sheetContext).colorScheme.onSurface.withValues(alpha: .5)),
                           ),
                         ],
@@ -507,8 +563,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 9),
                 Text(
                   tr(
-                    'يجب أن يعيد الرابط JSON يحتوي على apps، ويفضّل أن يوفر لكل تطبيق رابط IPA مباشر.',
-                    'The URL should return JSON containing apps, preferably with a direct IPA URL for each app.',
+                    'يدعم بومة القوائم المباشرة وصيغ apps / data / items / results / packages ومصادر AltStore وFeather. ويفضّل وجود رابط IPA مباشر لكل تطبيق.',
+                    'Booma supports direct lists, apps/data/items/results/packages containers, plus AltStore and Feather-style sources. A direct IPA URL per app is preferred.',
                   ),
                   style: TextStyle(fontSize: 10.5, height: 1.45, color: Theme.of(sheetContext).colorScheme.onSurface.withValues(alpha: .46)),
                 ),
@@ -592,8 +648,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   child: Text(
                     tr(
-                      'الصيغ المدعومة: JSON يحتوي على apps، ومصادر AltStore/Feather التي تحتوي versions و downloadURL. استخدم HTTPS ومصدراً تثق به؛ بومة لا يوقّع أي ملف أثناء التصفح أو جلب المكتبة.',
-                      'Supported formats: JSON with an apps list, plus AltStore/Feather-style sources with versions and downloadURL. Prefer HTTPS and trusted sources; Booma does not sign anything while browsing or loading a library.',
+                      'بومة يحاول قراءة أغلب صيغ المكتبات الشائعة تلقائياً: قائمة JSON مباشرة، apps، data، items، results، packages، ومصادر AltStore/Feather مع versions وdownloadURL. كما يتعرّف على أشهر أسماء حقول الأيقونة والإصدار ورابط IPA. استخدم HTTPS ومصدراً تثق به؛ جلب المكتبة والتصفح لا ينفذان أي توقيع.',
+                      'Booma automatically reads many common source layouts: direct JSON lists, apps, data, items, results, packages, and AltStore/Feather sources with versions and downloadURL. It also recognizes common icon, version, and IPA URL field names. Prefer HTTPS and trusted sources; browsing and loading do not sign anything.',
                     ),
                     style: TextStyle(fontSize: 11.5, height: 1.55, color: Theme.of(sheetContext).colorScheme.onSurface.withValues(alpha: .66)),
                   ),
