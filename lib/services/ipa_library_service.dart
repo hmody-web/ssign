@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:async';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/remote_app.dart';
 import 'library_sources_store.dart';
 
@@ -10,9 +11,9 @@ class IpaLibraryService {
   static const String _proxyBase = 'https://scrptaty.com/apps/ipa';
   static const String _alsarayApi = 'https://scrptaty.com/apps/alsaray/api.php';
   static const String _zsignSource = 'https://appiraq.com/han.json';
-  static const String _appstarApi = 'https://appstar.app/my/get-7md/Api.php';
-  static const String _nsignApi = 'https://ipasoon.icu/apps.php';
-  static const String _nsignDownloadApi = 'https://night-script.top/my/get-7md/Apichid.php';
+  static const String _fallbackAppstarApi = 'https://appstar.app/my/get-7md/Api.php';
+  static const String _fallbackNsignApi = 'https://night-script.top/my/get-7md/Api.php';
+  static const String _fallbackNsignDownloadApi = 'https://night-script.top/my/get-7md/Apichid.php';
 
   List<RemoteApp>? _zsignCache;
   DateTime? _zsignCacheAt;
@@ -23,12 +24,18 @@ class IpaLibraryService {
   int? _appstarTotalApps;
   int? _appstarPageSize;
   static const Duration _appstarCacheDuration = Duration(minutes: 5);
+  static const String _appstarLastPagePrefsKey = 'booma.appstar.lastSuccessfulPage.v1';
+  int? _appstarLastSuccessfulPage;
+  bool _appstarDiscoveryRunning = false;
 
   final Map<int, List<RemoteApp>> _nsignPageCache = <int, List<RemoteApp>>{};
   DateTime? _nsignCacheAt;
   int? _nsignTotalApps;
   int? _nsignPageSize;
   static const Duration _nsignCacheDuration = Duration(minutes: 5);
+  static const String _nsignLastPagePrefsKey = 'booma.nsign.lastSuccessfulPage.v1';
+  int? _nsignLastSuccessfulPage;
+  bool _nsignDiscoveryRunning = false;
 
   final Map<String, List<RemoteApp>> _customSourceCache = <String, List<RemoteApp>>{};
   final Map<String, DateTime> _customSourceCacheAt = <String, DateTime>{};
@@ -36,6 +43,85 @@ class IpaLibraryService {
 
   final HttpClient _client = HttpClient()
     ..connectionTimeout = const Duration(seconds: 30);
+
+  String get _appstarApi {
+    final configured = LibrarySourcesStore.instance.byId('appstar')?.url.trim() ?? '';
+    return configured.isEmpty ? _fallbackAppstarApi : configured;
+  }
+
+  String get _nsignApi {
+    final configured = LibrarySourcesStore.instance.byId('nsign')?.url.trim() ?? '';
+    return configured.isEmpty ? _fallbackNsignApi : configured;
+  }
+
+  String get _nsignDownloadApi {
+    final configured = LibrarySourcesStore.instance.byId('nsign')?.url.trim() ?? '';
+    final uri = Uri.tryParse(configured);
+    if (uri != null && uri.hasScheme && uri.host.isNotEmpty) {
+      final path = uri.path;
+      final marker = '/my/get-7md/';
+      final markerIndex = path.indexOf(marker);
+      if (markerIndex >= 0) {
+        final basePath = path.substring(0, markerIndex + marker.length);
+        return uri.replace(path: '${basePath}Apichid.php', query: '').toString();
+      }
+    }
+    return _fallbackNsignDownloadApi;
+  }
+
+  Future<int> _readAppstarLastSuccessfulPage() async {
+    if (_appstarLastSuccessfulPage != null) return _appstarLastSuccessfulPage!;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _appstarLastSuccessfulPage = prefs.getInt(_appstarLastPagePrefsKey) ?? 0;
+    } catch (_) {
+      _appstarLastSuccessfulPage = 0;
+    }
+    return _appstarLastSuccessfulPage!;
+  }
+
+  Future<void> _rememberAppstarSuccessfulPage(int page) async {
+    if (page <= 0 || page <= (_appstarLastSuccessfulPage ?? 0)) return;
+    _appstarLastSuccessfulPage = page;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_appstarLastPagePrefsKey, page);
+    } catch (_) {}
+  }
+
+  Future<void> _discoverNewAppstarPages() async {
+    if (_appstarDiscoveryRunning) return;
+    _appstarDiscoveryRunning = true;
+    try {
+      await _ensureAppstarMetadata();
+      final pageSize = _appstarPageSize ?? 0;
+      if (pageSize <= 0) return;
+
+      var lastKnown = await _readAppstarLastSuccessfulPage();
+      final total = _appstarTotalApps ?? 0;
+      if (total > 0) {
+        final reportedLastPage = ((total + pageSize - 1) ~/ pageSize);
+        if (reportedLastPage > lastKnown) lastKnown = reportedLastPage;
+      }
+      if (lastKnown <= 0) lastKnown = 1;
+
+      // Never cap page numbers. Keep checking forward until the first genuinely empty page.
+      // HTTP 200 alone is not treated as a valid page; the apps array must contain rows.
+      var page = lastKnown + 1;
+      while (true) {
+        final rows = await _fetchAppstarPage(page, allowCachedEmpty: false);
+        if (rows.isEmpty) break;
+        await _rememberAppstarSuccessfulPage(page);
+        final inferredTotal = ((page - 1) * pageSize) + rows.length;
+        if ((_appstarTotalApps ?? 0) < inferredTotal) _appstarTotalApps = inferredTotal;
+        page++;
+      }
+    } catch (_) {
+      // Discovery is best effort and must never block the library UI.
+    } finally {
+      _appstarDiscoveryRunning = false;
+    }
+  }
 
   Future<List<RemoteApp>> fetchApps({
     int offset = 0,
@@ -81,6 +167,9 @@ class IpaLibraryService {
         loadCustom(),
         sources.isEnabled('nsign') ? safeApps(_fetchNsignSearch(term)) : Future<List<RemoteApp>>.value(const <RemoteApp>[]),
         sources.isEnabled('appstar') ? safeApps(_fetchAppstarSearch(term)) : Future<List<RemoteApp>>.value(const <RemoteApp>[]),
+        sources.isEnabled('iosboom')
+            ? safeApps(_fetchIosBoomApps(offset: 0, limit: safeOffset + safeLimit, search: term))
+            : Future<List<RemoteApp>>.value(const <RemoteApp>[]),
       ]);
       final merged = _dedupeApps(<RemoteApp>[
         ...(all[0] as List<RemoteApp>),
@@ -88,6 +177,7 @@ class IpaLibraryService {
         ...(all[2] as List<RemoteApp>),
         ...(all[3] as List<RemoteApp>),
         ...(all[4] as List<RemoteApp>),
+        ...(all[5] as List<RemoteApp>),
       ]);
       if (safeOffset >= merged.length) return const <RemoteApp>[];
       return merged.skip(safeOffset).take(safeLimit).toList();
@@ -110,7 +200,7 @@ class IpaLibraryService {
     final prefixCount = prefixApps.length;
     final nsignStart = prefixCount;
     final appstarStart = nsignStart + nsignCount;
-    final libraryEnd = appstarStart + appstarCount;
+    final iosBoomStart = appstarStart + appstarCount;
     final result = <RemoteApp>[];
     var cursor = safeOffset;
 
@@ -133,17 +223,25 @@ class IpaLibraryService {
       }
     }
 
-    if (cursor < libraryEnd && result.length < safeLimit && appstarCount > 0) {
+    if (cursor < iosBoomStart && result.length < safeLimit && appstarCount > 0) {
       final appstarOffset = (cursor - appstarStart).clamp(0, appstarCount).toInt();
       final take = (safeLimit - result.length).clamp(0, appstarCount - appstarOffset).toInt();
       try {
         final rows = await _fetchAppstarSlice(offset: appstarOffset, limit: take);
         result.addAll(rows);
         cursor += rows.length;
-        if (rows.length < take) cursor = libraryEnd;
+        if (rows.length < take) cursor = iosBoomStart;
       } catch (_) {
-        cursor = libraryEnd;
+        cursor = iosBoomStart;
       }
+    }
+
+    final remaining = safeLimit - result.length;
+    if (remaining > 0 && sources.isEnabled('iosboom')) {
+      final iosBoomOffset = cursor <= iosBoomStart ? 0 : cursor - iosBoomStart;
+      try {
+        result.addAll(await _fetchIosBoomApps(offset: iosBoomOffset, limit: remaining, search: ''));
+      } catch (_) {}
     }
 
     return _dedupeApps(result);
@@ -178,6 +276,8 @@ class IpaLibraryService {
           return all.skip(offset).take(limit).toList();
         }
         return _fetchAppstarSlice(offset: offset, limit: limit);
+      case 'iosboom':
+        return _fetchIosBoomApps(offset: offset, limit: limit, search: search);
       case 'custom':
         final all = await _fetchCustomSource(source, search: search);
         return all.skip(offset).take(limit).toList();
@@ -189,9 +289,14 @@ class IpaLibraryService {
   List<RemoteApp> _dedupeApps(Iterable<RemoteApp> apps) {
     final map = <String, RemoteApp>{};
     for (final app in apps) {
-      final key = app.id.isNotEmpty
-          ? app.id
-          : '${app.bundleId.toLowerCase()}|${app.version}|${app.name.toLowerCase()}';
+      final sourceId = LibrarySourcesStore.sourceIdForStorage(app.storageType, app.id);
+      final bundle = app.bundleId.trim().toLowerCase();
+      final version = app.version.trim().toLowerCase();
+      final key = bundle.isNotEmpty
+          ? '$sourceId|$bundle|$version'
+          : (app.id.isNotEmpty
+              ? app.id
+              : '$sourceId|${app.name.trim().toLowerCase()}|$version');
       map.putIfAbsent(key, () => app);
     }
     return map.values.toList();
@@ -327,14 +432,14 @@ class IpaLibraryService {
           }
         }
 
-        final name = _firstText(source, const ['name', 'title', 'displayName', 'appName']);
+        final name = _firstText(source, const ['name', 'title']);
         final bundleId = _firstText(
           source,
-          const ['bundleIdentifier', 'bundleID', 'bundle_id', 'bundleId', 'identifier'],
+          const ['bundleIdentifier', 'bundle_id', 'bundleId'],
         );
         final appVersion = _firstText(
           version,
-          const ['version', 'versionString', 'shortVersion', 'bundleVersion'],
+          const ['version', 'versionString', 'shortVersion'],
           fallback: _firstText(source, const ['version', 'versionString']),
         );
         final developer = _firstText(
@@ -354,7 +459,7 @@ class IpaLibraryService {
           const ['category', 'categoryName', 'genre'],
         );
         final icon = _absoluteUrl(
-          _firstText(source, const ['iconURL', 'iconUrl', 'icon_url', 'icon', 'image', 'imageURL', 'artworkURL']),
+          _firstText(source, const ['iconURL', 'iconUrl', 'icon_url', 'icon']),
           base: uri,
         );
         final download = _absoluteUrl(
@@ -435,12 +540,77 @@ class IpaLibraryService {
   }
 
 
+  Future<int> _readNsignLastSuccessfulPage() async {
+    if (_nsignLastSuccessfulPage != null) return _nsignLastSuccessfulPage!;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _nsignLastSuccessfulPage = prefs.getInt(_nsignLastPagePrefsKey) ?? 0;
+    } catch (_) {
+      _nsignLastSuccessfulPage = 0;
+    }
+    return _nsignLastSuccessfulPage!;
+  }
+
+  Future<void> _rememberNsignSuccessfulPage(int page) async {
+    if (page <= 0 || page <= (_nsignLastSuccessfulPage ?? 0)) return;
+    _nsignLastSuccessfulPage = page;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_nsignLastPagePrefsKey, page);
+    } catch (_) {}
+  }
+
+  Future<void> _discoverNewNsignPages() async {
+    if (_nsignDiscoveryRunning) return;
+    _nsignDiscoveryRunning = true;
+    try {
+      await _fetchNsignPage(1);
+      final pageSize = _nsignPageSize ?? 0;
+      if (pageSize <= 0) return;
+
+      var lastKnown = await _readNsignLastSuccessfulPage();
+      final total = _nsignTotalApps ?? 0;
+      if (total > 0) {
+        final reportedLastPage = ((total + pageSize - 1) ~/ pageSize);
+        if (reportedLastPage > lastKnown) lastKnown = reportedLastPage;
+      }
+      if (lastKnown <= 0) lastKnown = 1;
+
+      // NSign may return HTTP 200 even for a page that has no rows.
+      // A page is considered valid only when the decoded `apps` array is non-empty.
+      var page = lastKnown + 1;
+      while (true) {
+        final rows = await _fetchNsignPage(page, allowCachedEmpty: false);
+        if (rows.isEmpty) break;
+        await _rememberNsignSuccessfulPage(page);
+        final inferredTotal = ((page - 1) * pageSize) + rows.length;
+        if ((_nsignTotalApps ?? 0) < inferredTotal) _nsignTotalApps = inferredTotal;
+        page++;
+      }
+    } catch (_) {
+      // Discovery is best effort. Never block or clear the visible library on failure.
+    } finally {
+      _nsignDiscoveryRunning = false;
+    }
+  }
+
+
   Future<int> _ensureNsignMetadata() async {
     _invalidateNsignCacheIfNeeded();
-    if (_nsignTotalApps != null && _nsignPageSize != null) {
-      return _nsignTotalApps!;
+    if (_nsignTotalApps == null || _nsignPageSize == null) {
+      await _fetchNsignPage(1);
     }
-    await _fetchNsignPage(1);
+
+    final pageSize = _nsignPageSize ?? 0;
+    if (pageSize > 0) {
+      final lastKnown = await _readNsignLastSuccessfulPage();
+      final inferredKnownCount = lastKnown * pageSize;
+      if ((_nsignTotalApps ?? 0) < inferredKnownCount) {
+        _nsignTotalApps = inferredKnownCount;
+      }
+    }
+
+    unawaited(_discoverNewNsignPages());
     return _nsignTotalApps ?? 0;
   }
 
@@ -455,19 +625,17 @@ class IpaLibraryService {
     }
   }
 
-  Future<List<RemoteApp>> _fetchNsignPage(int page) async {
+  Future<List<RemoteApp>> _fetchNsignPage(int page, {bool allowCachedEmpty = true}) async {
     _invalidateNsignCacheIfNeeded();
     final safePage = page < 1 ? 1 : page;
     final cached = _nsignPageCache[safePage];
-    if (cached != null) return cached;
+    if (cached != null && (allowCachedEmpty || cached.isNotEmpty)) return cached;
 
-    // The iPAsOON catalogue always sends the `search` parameter from its
-    // web client, even when it is empty. Some server configurations return
-    // no catalogue rows when that parameter is omitted.
-    final uri = Uri.parse(_nsignApi).replace(
+    final baseUri = Uri.parse(_nsignApi);
+    final uri = baseUri.replace(
       queryParameters: <String, String>{
+        ...baseUri.queryParameters,
         'page': '$safePage',
-        'search': '',
       },
     );
     final decoded = await _nsignRequest(uri);
@@ -476,7 +644,9 @@ class IpaLibraryService {
 
     _nsignPageCache[safePage] = parsed;
     if (safePage == 1 && parsed.isNotEmpty) _nsignPageSize = parsed.length;
-    _nsignTotalApps ??= _nsignTotal(decoded, fallback: parsed.length);
+    if (parsed.isNotEmpty) await _rememberNsignSuccessfulPage(safePage);
+    final reportedTotal = _nsignTotal(decoded, fallback: parsed.length);
+    if ((_nsignTotalApps ?? 0) < reportedTotal) _nsignTotalApps = reportedTotal;
     return parsed;
   }
 
@@ -517,7 +687,6 @@ class IpaLibraryService {
       if (rows.isEmpty || index >= rows.length) break;
       final needed = limit - result.length;
       result.addAll(rows.skip(index).take(needed));
-      if (rows.length < pageSize) break;
       page++;
       index = 0;
     }
@@ -527,8 +696,13 @@ class IpaLibraryService {
   Future<List<RemoteApp>> _fetchNsignSearch(String search) async {
     final term = search.trim();
     if (term.isEmpty) return const <RemoteApp>[];
-    final uri = Uri.parse(_nsignApi).replace(
-      queryParameters: <String, String>{'page': '1', 'search': term},
+    final baseUri = Uri.parse(_nsignApi);
+    final uri = baseUri.replace(
+      queryParameters: <String, String>{
+        ...baseUri.queryParameters,
+        'page': '1',
+        'search': term,
+      },
     );
     final decoded = await _nsignRequest(uri);
     final results = _parseNsignApps(_appstarAppsList(decoded), uri);
@@ -573,7 +747,7 @@ class IpaLibraryService {
       if (raw is! Map) continue;
       final source = Map<String, dynamic>.from(raw);
 
-      final name = _firstText(source, const ['name', 'title', 'displayName', 'appName']);
+      final name = _firstText(source, const ['name', 'title']);
       final sourceId = _firstText(source, const ['id', 'appID', 'identifier', 'slug']);
       final bundleId = _firstText(
         source,
@@ -604,13 +778,11 @@ class IpaLibraryService {
         _firstText(source, const ['iconURL', 'icon_url', 'iconUrl', 'imageURL', 'icon']),
         base: base,
       );
-      final download = _absoluteUrl(
-        _firstText(
-          source,
-          const ['downloadURL', 'download_url', 'downloadUrl', 'dohaveURL', 'ipa_url', 'url'],
-        ),
-        base: base,
+      final rawDownload = _firstText(
+        source,
+        const ['downloadURL', 'download_url', 'downloadUrl', 'ipa_url', 'url'],
       );
+      final download = _absoluteHttpUrl(rawDownload, base: base);
       final size = _firstInt(source, const ['size', 'fileSize', 'file_size']);
       final createdAt = _firstDate(
         source,
@@ -653,17 +825,7 @@ class IpaLibraryService {
     var apps = _customSourceCache[source.id];
     if (apps == null || cachedAt == null ||
         now.difference(cachedAt) >= _customSourceCacheDuration) {
-      var uri = Uri.parse(source.url);
-      // iPAsOON/NSign exposes a paged catalogue endpoint. Make manually
-      // added links such as `https://ipasoon.icu/apps.php` work without
-      // requiring the user to know the query-string format. Preserve any
-      // parameters they supplied and only fill the missing defaults.
-      if (_isIpasoonCatalogUri(uri)) {
-        final query = Map<String, String>.from(uri.queryParameters);
-        query.putIfAbsent('page', () => '1');
-        query.putIfAbsent('search', () => '');
-        uri = uri.replace(queryParameters: query);
-      }
+      final uri = Uri.parse(source.url);
       final response = await _jsonGet(uri);
       final body = await utf8.decoder.bind(response).join();
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -699,50 +861,14 @@ class IpaLibraryService {
   }
 
   List<dynamic> _customAppsList(dynamic decoded) {
-    final direct = _findAppList(decoded);
-    if (direct != null) return direct;
-    throw const FormatException(
-      'صيغة المصدر غير مدعومة. يدعم بومة JSON العادي وAltStore وFeather وقوائم apps/data/items/results/packages',
-    );
-  }
-
-  List<dynamic>? _findAppList(dynamic value, {int depth = 0}) {
-    if (depth > 5) return null;
-    if (value is List) {
-      if (value.isEmpty) return value;
-      final maps = value.whereType<Map>().toList();
-      if (maps.isNotEmpty && maps.any(_looksLikeAppMap)) return value;
-      for (final item in value) {
-        final found = _findAppList(item, depth: depth + 1);
-        if (found != null && found.isNotEmpty) return found;
-      }
-      return maps.isNotEmpty ? value : null;
+    if (decoded is List) return decoded;
+    if (decoded is Map) {
+      if (decoded['apps'] is List) return decoded['apps'] as List;
+      if (decoded['data'] is List) return decoded['data'] as List;
+      final data = decoded['data'];
+      if (data is Map && data['apps'] is List) return data['apps'] as List;
     }
-    if (value is Map) {
-      final map = Map<String, dynamic>.from(value);
-      for (final key in const [
-        'apps', 'applications', 'items', 'results', 'packages', 'releases',
-        'data', 'catalog', 'library', 'repository', 'source',
-      ]) {
-        if (!map.containsKey(key)) continue;
-        final found = _findAppList(map[key], depth: depth + 1);
-        if (found != null) return found;
-      }
-      for (final nested in map.values) {
-        final found = _findAppList(nested, depth: depth + 1);
-        if (found != null && found.isNotEmpty) return found;
-      }
-    }
-    return null;
-  }
-
-  bool _looksLikeAppMap(Map value) {
-    final keys = value.keys.map((e) => e.toString().toLowerCase()).toSet();
-    final hasName = keys.contains('name') || keys.contains('title');
-    final hasBundle = keys.contains('bundleidentifier') || keys.contains('bundleid') || keys.contains('bundle_id');
-    final hasDownload = keys.any((k) => k.contains('download') || k.contains('ipa') || k == 'url');
-    final hasVersion = keys.contains('version') || keys.contains('versions');
-    return hasName && (hasBundle || hasDownload || hasVersion);
+    throw const FormatException('صيغة المصدر غير مدعومة. يجب أن يحتوي JSON على قائمة apps');
   }
 
   List<RemoteApp> _parseCustomApps(
@@ -761,7 +887,7 @@ class IpaLibraryService {
         versionData = Map<String, dynamic>.from(versions.first as Map);
       }
 
-      final name = _firstText(source, const ['name', 'title', 'displayName', 'appName']);
+      final name = _firstText(source, const ['name', 'title']);
       final bundleId = _firstText(source, const ['bundleIdentifier', 'bundleID', 'bundle_id', 'bundleId']);
       final sourceId = _firstText(source, const ['id', 'slug', 'identifier']);
       final appVersion = _firstText(
@@ -781,13 +907,13 @@ class IpaLibraryService {
       final developer = _firstText(source, const ['developerName', 'developer_name', 'developer', 'author']);
       final category = _firstText(source, const ['category_ar', 'category_en', 'category', 'categoryName', 'genre']);
       final icon = _absoluteUrl(
-        _firstText(source, const ['iconURL', 'iconUrl', 'icon_url', 'icon', 'image', 'imageURL', 'artworkURL']),
+        _firstText(source, const ['iconURL', 'iconUrl', 'icon_url', 'icon']),
         base: base,
       );
       final download = _absoluteUrl(
         _firstText(
           versionData,
-          const ['downloadURL', 'downloadUrl', 'download_url', 'url', 'ipa_url', 'ipaUrl', 'file', 'fileURL', 'link'],
+          const ['downloadURL', 'downloadUrl', 'download_url', 'url', 'ipa_url'],
           fallback: _firstText(source, const ['downloadURL', 'downloadUrl', 'download_url', 'dohaveURL', 'url', 'ipa_url']),
         ),
         base: base,
@@ -837,6 +963,8 @@ class IpaLibraryService {
       return _appstarTotalApps!;
     }
     await _fetchAppstarPage(1);
+    // Check for newly added pages without making initial rendering wait for the probe.
+    unawaited(_discoverNewAppstarPages());
     return _appstarTotalApps ?? 0;
   }
 
@@ -851,14 +979,18 @@ class IpaLibraryService {
     }
   }
 
-  Future<List<RemoteApp>> _fetchAppstarPage(int page) async {
+  Future<List<RemoteApp>> _fetchAppstarPage(int page, {bool allowCachedEmpty = true}) async {
     _invalidateAppstarCacheIfNeeded();
     final safePage = page < 1 ? 1 : page;
     final cached = _appstarPageCache[safePage];
-    if (cached != null) return cached;
+    if (cached != null && (allowCachedEmpty || cached.isNotEmpty)) return cached;
 
-    final uri = Uri.parse(_appstarApi).replace(
-      queryParameters: <String, String>{'page': '$safePage'},
+    final baseUri = Uri.parse(_appstarApi);
+    final uri = baseUri.replace(
+      queryParameters: <String, String>{
+        ...baseUri.queryParameters,
+        'page': '$safePage',
+      },
     );
     print('[Appstar] Request page: $safePage -> $uri');
     final decoded = await _appstarRequest(uri);
@@ -868,7 +1000,11 @@ class IpaLibraryService {
 
     _appstarPageCache[safePage] = parsed;
     if (safePage == 1 && parsed.isNotEmpty) _appstarPageSize = parsed.length;
-    _appstarTotalApps ??= _appstarTotal(decoded, fallback: parsed.length);
+    if (parsed.isNotEmpty) {
+      await _rememberAppstarSuccessfulPage(safePage);
+    }
+    final reportedTotal = _appstarTotal(decoded, fallback: parsed.length);
+    if ((_appstarTotalApps ?? 0) < reportedTotal) _appstarTotalApps = reportedTotal;
     print('[Appstar] Total apps: ${_appstarTotalApps ?? 0} | Page size: ${_appstarPageSize ?? parsed.length}');
     return parsed;
   }
@@ -893,7 +1029,6 @@ class IpaLibraryService {
       if (rows.isEmpty || index >= rows.length) break;
       final needed = limit - result.length;
       result.addAll(rows.skip(index).take(needed));
-      if (rows.length < pageSize) break;
       page++;
       index = 0;
     }
@@ -903,8 +1038,12 @@ class IpaLibraryService {
   Future<List<RemoteApp>> _fetchAppstarSearch(String search) async {
     final term = search.trim();
     if (term.isEmpty) return const <RemoteApp>[];
-    final uri = Uri.parse(_appstarApi).replace(
-      queryParameters: <String, String>{'search': term},
+    final baseUri = Uri.parse(_appstarApi);
+    final uri = baseUri.replace(
+      queryParameters: <String, String>{
+        ...baseUri.queryParameters,
+        'search': term,
+      },
     );
     print('[Appstar] Search: "$term" -> $uri');
     final decoded = await _appstarRequest(uri);
@@ -973,7 +1112,7 @@ class IpaLibraryService {
       if (raw is! Map) continue;
       final source = Map<String, dynamic>.from(raw);
 
-      final name = _firstText(source, const ['name', 'title', 'displayName', 'appName']);
+      final name = _firstText(source, const ['name', 'title']);
       final bundleId = _firstText(
         source,
         const ['bundleID', 'bundle_id', 'bundleIdentifier', 'bundleId'],
@@ -1162,8 +1301,68 @@ class IpaLibraryService {
     return urls;
   }
 
+  Future<List<RemoteApp>> _fetchIosBoomApps({
+    required int offset,
+    required int limit,
+    String search = '',
+  }) async {
+    if (limit <= 0) return const <RemoteApp>[];
+
+    final query = <String, String>{
+      'offset': '$offset',
+      'limit': '$limit',
+    };
+
+    final term = search.trim();
+    if (term.isNotEmpty) query['search'] = term;
+
+    final uri = Uri.parse('$_proxyBase/library.php').replace(
+      queryParameters: query,
+    );
+
+    final response = await _jsonGet(uri);
+    final body = await utf8.decoder.bind(response).join();
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw HttpException(
+        _extractError(
+          body,
+          fallback: 'تعذر تحميل مكتبة التطبيقات (${response.statusCode})',
+        ),
+        uri: uri,
+      );
+    }
+
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(body);
+    } catch (_) {
+      throw const FormatException('استجابة المكتبة غير صالحة');
+    }
+
+    if (decoded is Map && decoded['ok'] == false) {
+      throw HttpException(
+        (decoded['detail'] ??
+                decoded['error'] ??
+                'تعذر تحميل مكتبة التطبيقات')
+            .toString(),
+        uri: uri,
+      );
+    }
+
+    if (decoded is! List) {
+      throw const FormatException('استجابة المكتبة غير صالحة');
+    }
+
+    return decoded
+        .whereType<Map>()
+        .map((e) => RemoteApp.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+
   Future<List<String>> fetchBoomaCategories({int sampleSize = 240}) async {
-    final apps = await fetchApps(offset: 0, limit: sampleSize, search: '');
+    final apps = await _fetchIosBoomApps(offset: 0, limit: sampleSize, search: '');
     final categories = apps
         .map((app) => app.category.trim())
         .where((category) => category.isNotEmpty)
@@ -1193,14 +1392,6 @@ class IpaLibraryService {
     }
 
     if (app.storageType.startsWith('custom:')) {
-      // A manually-added iPAsOON/NSign catalogue row intentionally does not
-      // contain the IPA URL. Resolve it lazily using the same app id endpoint
-      // as the built-in NSign source.
-      final customSource = LibrarySourcesStore.instance.byId(app.storageType);
-      final sourceUri = customSource == null ? null : Uri.tryParse(customSource.url);
-      if (sourceUri != null && _isIpasoonCatalogUri(sourceUri)) {
-        return _resolveNsignDownload(app);
-      }
       throw const HttpException('المصدر المضاف لم يرجع رابط IPA مباشرًا لهذا التطبيق');
     }
 
@@ -1255,12 +1446,6 @@ class IpaLibraryService {
 
 
   Future<Uri> _resolveNsignDownload(RemoteApp app) async {
-    // Cinema Max is part of the NSign/iPAsOON catalogue but its public catalog
-    // row intentionally omits a download URL. Keep the verified installation
-    // package as a direct fallback so the app can always be downloaded.
-    if (app.bundleId == 'ipasoon.Cinema-Max') {
-      return Uri.parse('https://night-script.top/js/output/4262_HSBCBankplc_CinemaMax_10_ipasoonCinemaMax.signed.ipa');
-    }
     final sourceId = app.slug.trim().isNotEmpty
         ? app.slug.trim()
         : app.id.replaceFirst(RegExp(r'^nsign:'), '');
@@ -1295,6 +1480,20 @@ class IpaLibraryService {
       throw FormatException('رابط NSign المستلم غير صالح: $absolute');
     }
     return parsed;
+  }
+
+  String _absoluteHttpUrl(String value, {required Uri base}) {
+    final text = value.trim();
+    if (text.isEmpty) return '';
+    final lower = text.toLowerCase();
+    if (lower == 'yes' || lower == 'no' || lower == 'true' || lower == 'false' || lower == 'noch0') {
+      return '';
+    }
+    final absolute = _absoluteUrl(text, base: base);
+    final parsed = Uri.tryParse(absolute);
+    if (parsed == null || !parsed.hasScheme) return '';
+    if (parsed.scheme != 'http' && parsed.scheme != 'https') return '';
+    return absolute;
   }
 
   String _findDownloadUrl(dynamic value) {
@@ -1357,7 +1556,7 @@ class IpaLibraryService {
         '${safeName.isEmpty ? 'Application' : safeName}${safeVersion.isEmpty ? '' : '-$safeVersion'}-${DateTime.now().millisecondsSinceEpoch}.ipa';
     final file = File(p.join(dir.path, filename));
 
-    // First try: use the latest direct URL returned by the active source.
+    // First try: latest direct GitHub/release URL returned by iOSBoom.
     var directUri = await resolveDownload(app);
     var result = await _downloadUrlToFile(
       directUri,
@@ -1546,35 +1745,15 @@ class IpaLibraryService {
     }
   }
 
-  bool _isIpasoonCatalogUri(Uri uri) {
-    final host = uri.host.toLowerCase();
-    final path = uri.path.toLowerCase();
-    return (host == 'ipasoon.icu' || host.endsWith('.ipasoon.icu')) &&
-        path.endsWith('/apps.php');
-  }
-
   Future<HttpClientResponse> _jsonGet(Uri uri) async {
     final request = await _client.getUrl(uri);
     request.followRedirects = true;
     request.maxRedirects = 8;
-    request.headers.set(HttpHeaders.acceptHeader, 'application/json, text/plain, */*');
+    request.headers.set(HttpHeaders.acceptHeader, 'application/json');
     request.headers.set(
       HttpHeaders.userAgentHeader,
       'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1',
     );
-
-    // Match the same-origin browser request used by the public applications
-    // page. This avoids the catalogue being treated as a generic/bot request
-    // by hosting/WAF rules while still using the public JSON endpoint.
-    if (_isIpasoonCatalogUri(uri)) {
-      request.headers.set(HttpHeaders.refererHeader, 'https://ipasoon.icu/apps/');
-      request.headers.set('Origin', 'https://ipasoon.icu');
-      request.headers.set(HttpHeaders.acceptLanguageHeader, 'ar-IQ,ar;q=0.9,en;q=0.8');
-      request.headers.set('Sec-Fetch-Site', 'same-origin');
-      request.headers.set('Sec-Fetch-Mode', 'cors');
-      request.headers.set('Sec-Fetch-Dest', 'empty');
-    }
-
     request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
     request.headers.set('Pragma', 'no-cache');
     return request.close();

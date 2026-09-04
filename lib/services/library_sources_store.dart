@@ -107,7 +107,7 @@ class LibrarySourcesStore extends ChangeNotifier {
     LibrarySourceConfig(
       id: 'nsign',
       name: 'NSign',
-      url: 'https://ipasoon.icu/apps.php',
+      url: 'https://night-script.top/my/get-7md/Api.php',
       kind: 'nsign',
       builtIn: true,
       enabled: true,
