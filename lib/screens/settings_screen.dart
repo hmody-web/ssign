@@ -5,6 +5,7 @@ import '../services/app_store.dart';
 import '../services/admin_service.dart';
 import '../services/localized.dart';
 import '../services/signing_service.dart';
+import '../services/library_sources_store.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/native_ios_controls.dart';
@@ -139,6 +140,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               const SizedBox(height: 14),
+              _sourcesCard(context),
+              const SizedBox(height: 14),
               GlassCard(
                 padding: EdgeInsets.zero,
                 child: SwitchListTile.adaptive(
@@ -225,6 +228,401 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           );
         },
+      );
+
+
+  Widget _sourcesCard(BuildContext context) => AnimatedBuilder(
+        animation: LibrarySourcesStore.instance,
+        builder: (context, _) {
+          final sourceStore = LibrarySourcesStore.instance;
+          final sources = sourceStore.sources;
+          final enabledCount = sources.where((item) => item.enabled).length;
+          final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: .5);
+          final primary = Theme.of(context).colorScheme.primary;
+          return GlassCard(
+            padding: const EdgeInsets.fromLTRB(15, 15, 15, 13),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    _tileIcon(context, CupertinoIcons.square_stack_3d_up_fill),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            tr('مصادر التطبيقات', 'App Sources'),
+                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            tr(
+                              '$enabledCount من ${sources.length} مصادر ظاهرة في المكتبة',
+                              '$enabledCount of ${sources.length} sources are visible',
+                            ),
+                            style: TextStyle(fontSize: 12, color: muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: primary.withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Text(
+                        '$enabledCount',
+                        style: TextStyle(color: primary, fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 13),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .035),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: .65)),
+                  ),
+                  child: Column(
+                    children: [
+                      for (var i = 0; i < sources.length; i++) ...[
+                        _sourceRow(context, sources[i]),
+                        if (i != sources.length - 1)
+                          Divider(
+                            height: 1,
+                            indent: 54,
+                            color: Theme.of(context).dividerColor.withValues(alpha: .65),
+                          ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                NativeIOSButton(
+                  title: tr('إضافة مصدر', 'Add Source'),
+                  systemImage: 'plus.circle.fill',
+                  onPressed: () => _showAddSourceSheet(context),
+                  prominent: true,
+                  height: 48,
+                ),
+                const SizedBox(height: 9),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _showSourceHelp(context),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(CupertinoIcons.info_circle, size: 14, color: primary),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            tr('كيف أضيف مكتبة تطبيقات عبر رابط URL؟', 'How do I add an app library using a URL?'),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: primary,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+
+  Widget _sourceRow(BuildContext context, LibrarySourceConfig source) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: .48);
+    String host = source.url;
+    try {
+      host = Uri.parse(source.url).host;
+    } catch (_) {}
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: primary.withValues(alpha: source.enabled ? .13 : .055),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(
+              source.id == 'nsign' ? CupertinoIcons.cloud_download_fill : CupertinoIcons.tray_full_fill,
+              size: 17,
+              color: source.enabled ? primary : muted,
+            ),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        source.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    if (source.builtIn) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: primary.withValues(alpha: .09),
+                          borderRadius: BorderRadius.circular(7),
+                        ),
+                        child: Text(
+                          tr('مدمج', 'Built-in'),
+                          style: TextStyle(fontSize: 8.5, color: primary, fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  host,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textDirection: TextDirection.ltr,
+                  style: TextStyle(fontSize: 10.5, color: muted),
+                ),
+              ],
+            ),
+          ),
+          if (!source.builtIn)
+            CupertinoButton(
+              padding: const EdgeInsets.all(6),
+              minSize: 32,
+              onPressed: () async {
+                await LibrarySourcesStore.instance.removeCustomSource(source.id);
+                if (context.mounted) {
+                  showAppNotice(
+                    context,
+                    tr('تم حذف المصدر', 'Source removed'),
+                    type: AppNoticeType.success,
+                  );
+                }
+              },
+              child: const Icon(CupertinoIcons.trash, size: 17, color: CupertinoColors.systemRed),
+            ),
+          CupertinoSwitch(
+            value: source.enabled,
+            activeColor: primary,
+            onChanged: (value) => LibrarySourcesStore.instance.setEnabled(source.id, value),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAddSourceSheet(BuildContext context) async {
+    final nameController = TextEditingController();
+    final urlController = TextEditingController();
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        final bottom = MediaQuery.of(sheetContext).viewInsets.bottom;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + bottom),
+          child: GlassCard(
+            radius: 30,
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    _tileIcon(sheetContext, CupertinoIcons.link),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(tr('إضافة مصدر جديد', 'Add a New Source'), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+                          const SizedBox(height: 2),
+                          Text(
+                            tr('أضف رابط JSON لمكتبة تطبيقات موثوقة.', 'Add a JSON URL for a trusted app library.'),
+                            style: TextStyle(fontSize: 11.5, color: Theme.of(sheetContext).colorScheme.onSurface.withValues(alpha: .5)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      minSize: 36,
+                      onPressed: () => Navigator.pop(sheetContext),
+                      child: const Icon(CupertinoIcons.xmark_circle_fill, size: 26),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 17),
+                CupertinoTextField(
+                  controller: nameController,
+                  placeholder: tr('اسم المصدر (اختياري)', 'Source name (optional)'),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                  decoration: BoxDecoration(
+                    color: Theme.of(sheetContext).colorScheme.onSurface.withValues(alpha: .055),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: Theme.of(sheetContext).dividerColor),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: CupertinoTextField(
+                    controller: urlController,
+                    placeholder: 'https://example.com/apps.json',
+                    keyboardType: TextInputType.url,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                    decoration: BoxDecoration(
+                      color: Theme.of(sheetContext).colorScheme.onSurface.withValues(alpha: .055),
+                      borderRadius: BorderRadius.circular(15),
+                      border: Border.all(color: Theme.of(sheetContext).dividerColor),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 9),
+                Text(
+                  tr(
+                    'يجب أن يعيد الرابط JSON يحتوي على apps، ويفضّل أن يوفر لكل تطبيق رابط IPA مباشر.',
+                    'The URL should return JSON containing apps, preferably with a direct IPA URL for each app.',
+                  ),
+                  style: TextStyle(fontSize: 10.5, height: 1.45, color: Theme.of(sheetContext).colorScheme.onSurface.withValues(alpha: .46)),
+                ),
+                const SizedBox(height: 16),
+                NativeIOSButton(
+                  title: tr('إضافة المصدر', 'Add Source'),
+                  systemImage: 'plus',
+                  prominent: true,
+                  height: 48,
+                  onPressed: () async {
+                    try {
+                      await LibrarySourcesStore.instance.addCustomSource(
+                        url: urlController.text,
+                        name: nameController.text,
+                      );
+                      if (sheetContext.mounted) Navigator.pop(sheetContext, true);
+                    } catch (e) {
+                      if (sheetContext.mounted) {
+                        showAppNotice(
+                          sheetContext,
+                          e.toString().replaceFirst('FormatException: ', ''),
+                          type: AppNoticeType.error,
+                        );
+                      }
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    nameController.dispose();
+    urlController.dispose();
+    if (result == true && context.mounted) {
+      showAppNotice(
+        context,
+        tr('تمت إضافة المصدر وسيظهر ضمن تصنيفات المكتبة', 'Source added and will appear in the library filters'),
+        type: AppNoticeType.success,
+      );
+    }
+  }
+
+  Future<void> _showSourceHelp(BuildContext context) => showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (sheetContext) => Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 18),
+          child: GlassCard(
+            radius: 30,
+            padding: const EdgeInsets.fromLTRB(18, 17, 18, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    _tileIcon(sheetContext, CupertinoIcons.book_circle_fill),
+                    const SizedBox(width: 11),
+                    Expanded(child: Text(tr('طريقة إضافة مصدر URL', 'Adding a URL Source'), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900))),
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      minSize: 36,
+                      onPressed: () => Navigator.pop(sheetContext),
+                      child: const Icon(CupertinoIcons.xmark_circle_fill, size: 26),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 17),
+                _helpStep(sheetContext, '1', tr('انسخ رابط مكتبة موثوقة يعيد بيانات JSON.', 'Copy a trusted library URL that returns JSON data.')),
+                _helpStep(sheetContext, '2', tr('اضغط «إضافة مصدر»، ألصق الرابط واكتب اسماً إن أردت.', 'Tap “Add Source”, paste the URL, and optionally give it a name.')),
+                _helpStep(sheetContext, '3', tr('بعد الإضافة سيظهر المصدر تلقائياً كتصنيف في صفحة التطبيقات ويمكن إخفاؤه من هنا.', 'After adding it, the source appears automatically as a filter in Apps and can be hidden here.')),
+                const SizedBox(height: 7),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(sheetContext).colorScheme.primary.withValues(alpha: .08),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    tr(
+                      'الصيغ المدعومة: JSON يحتوي على apps، ومصادر AltStore/Feather التي تحتوي versions و downloadURL. استخدم HTTPS ومصدراً تثق به؛ بومة لا يوقّع أي ملف أثناء التصفح أو جلب المكتبة.',
+                      'Supported formats: JSON with an apps list, plus AltStore/Feather-style sources with versions and downloadURL. Prefer HTTPS and trusted sources; Booma does not sign anything while browsing or loading a library.',
+                    ),
+                    style: TextStyle(fontSize: 11.5, height: 1.55, color: Theme.of(sheetContext).colorScheme.onSurface.withValues(alpha: .66)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+  Widget _helpStep(BuildContext context, String number, String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 11),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: .14),
+                shape: BoxShape.circle,
+              ),
+              child: Text(number, style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w900)),
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: Padding(padding: const EdgeInsets.only(top: 4), child: Text(text, style: const TextStyle(height: 1.45, fontWeight: FontWeight.w600)))),
+          ],
+        ),
       );
 
   Widget _settingsChoice(

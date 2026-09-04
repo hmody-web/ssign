@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 
 import '../models/sign_models.dart';
 import '../services/app_store.dart';
+import '../widgets/app_notice.dart';
+import '../services/localized.dart';
 import 'apps_screen.dart';
 import 'library_screen.dart';
 import 'settings_screen.dart';
@@ -25,6 +27,8 @@ class _HomeShellState extends State<HomeShell> {
   int index = 0;
   late final PageController _pageController;
   ImportedFile? _preparedSignFile;
+  bool _signingBusy = false;
+  DateTime? _lastBlockedNotice;
   final _topKeys = List<GlobalKey>.generate(4, (_) => GlobalKey());
 
   void _openSignForFile(ImportedFile file) {
@@ -65,6 +69,20 @@ class _HomeShellState extends State<HomeShell> {
 
   void _goToPage(int page, {bool animate = true}) {
     if (page < 0 || page > 3) return;
+    if (_signingBusy && page != 2) {
+      _syncNativeSelection(2);
+      final now = DateTime.now();
+      if (_lastBlockedNotice == null || now.difference(_lastBlockedNotice!) > const Duration(milliseconds: 900)) {
+        _lastBlockedNotice = now;
+        showAppNotice(
+          context,
+          tr('يرجى عدم المغادرة لحين اكتمال عملية التوقيع', 'Please stay on the Sign tab until signing is complete'),
+          type: AppNoticeType.warning,
+          duration: const Duration(seconds: 3),
+        );
+      }
+      return;
+    }
     if (page == index) {
       final ctx = _topKeys[page].currentContext;
       if (ctx != null) {
@@ -112,6 +130,11 @@ class _HomeShellState extends State<HomeShell> {
                   SignScreen(
                     preparedFile: _preparedSignFile,
                     topKey: _topKeys[2],
+                    onBusyChanged: (value) {
+                      if (!mounted || _signingBusy == value) return;
+                      setState(() => _signingBusy = value);
+                      if (value) _syncNativeSelection(2);
+                    },
                     onSelectionCleared: () {
                       if (_preparedSignFile != null) setState(() => _preparedSignFile = null);
                     },
@@ -131,7 +154,7 @@ class _HomeShellState extends State<HomeShell> {
 
                 return PageView(
                   controller: _pageController,
-                  physics: const BouncingScrollPhysics(parent: PageScrollPhysics()),
+                  physics: _signingBusy ? const NeverScrollableScrollPhysics() : const BouncingScrollPhysics(parent: PageScrollPhysics()),
                   onPageChanged: (page) {
                     if (index != page) setState(() => index = page);
                     _syncNativeSelection(page);

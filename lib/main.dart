@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'screens/home_shell.dart';
 import 'services/app_store.dart';
+import 'services/library_sources_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppStore.instance.initialize();
+  await LibrarySourcesStore.instance.initialize();
   runApp(const BoomaApp());
 }
 

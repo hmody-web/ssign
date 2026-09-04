@@ -14,6 +14,7 @@ class AppStore extends ChangeNotifier {
   static const _accentKey = 'sign.accent';
   static const _signDraftKey = 'sign.currentDraft.v1';
   static const _autoSignKey = 'sign.autoSignAfterDownload.v1';
+  static const _installAfterSigningKey = 'sign.installAfterSigning.v1';
 
   SharedPreferences? _prefs;
   final List<ImportedFile> files = [];
@@ -24,6 +25,7 @@ class AppStore extends ChangeNotifier {
   int accent = 0;
   Map<String, dynamic>? signDraft;
   bool autoSignAfterDownload = false;
+  bool installAfterSigning = false;
 
   Future<void> initialize() async {
     _prefs = await SharedPreferences.getInstance();
@@ -43,6 +45,9 @@ class AppStore extends ChangeNotifier {
       final draft = _prefs!.getString(_signDraftKey);
       if (draft != null) signDraft = Map<String, dynamic>.from(jsonDecode(draft) as Map);
     } catch (_) {}
+    installAfterSigning = _prefs?.getBool(_installAfterSigningKey) ??
+        (signDraft?['installAfterSigning'] == true);
+    await _prefs?.setBool(_installAfterSigningKey, installAfterSigning);
   }
 
   bool get isArabic => languageCode == 'ar';
@@ -71,6 +76,12 @@ class AppStore extends ChangeNotifier {
   Future<void> setAutoSignAfterDownload(bool value) async {
     autoSignAfterDownload = value;
     await _prefs?.setBool(_autoSignKey, value);
+    notifyListeners();
+  }
+
+  Future<void> setInstallAfterSigning(bool value) async {
+    installAfterSigning = value;
+    await _prefs?.setBool(_installAfterSigningKey, value);
     notifyListeners();
   }
 

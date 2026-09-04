@@ -543,17 +543,25 @@ class _AppIcon extends StatelessWidget {
   const _AppIcon({required this.url, required this.size, required this.radius});
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
-        child: Container(
-          width: size,
-          height: size,
-          color: Theme.of(context).colorScheme.primary.withValues(alpha: .1),
-          child: url.isEmpty
-              ? Icon(CupertinoIcons.app_fill, size: size * .43, color: Theme.of(context).colorScheme.primary)
-              : Image.network(url, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Icon(CupertinoIcons.app_fill, size: size * .43, color: Theme.of(context).colorScheme.primary)),
-        ),
-      );
+  Widget build(BuildContext context) {
+    final placeholder = Image.asset('assets/images/noicon.jpg', fit: BoxFit.cover);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: url.trim().isEmpty
+            ? placeholder
+            : Image.network(
+                url,
+                fit: BoxFit.cover,
+                frameBuilder: (context, child, frame, wasSynchronouslyLoaded) =>
+                    wasSynchronouslyLoaded || frame != null ? child : placeholder,
+                errorBuilder: (_, __, ___) => placeholder,
+              ),
+      ),
+    );
+  }
 }
 
 class _RoundButton extends StatelessWidget {

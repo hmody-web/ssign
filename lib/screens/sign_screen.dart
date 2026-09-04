@@ -19,7 +19,8 @@ class SignScreen extends StatefulWidget {
   final ImportedFile? preparedFile;
   final Key? topKey;
   final VoidCallback? onSelectionCleared;
-  const SignScreen({super.key, this.preparedFile, this.topKey, this.onSelectionCleared});
+  final ValueChanged<bool>? onBusyChanged;
+  const SignScreen({super.key, this.preparedFile, this.topKey, this.onSelectionCleared, this.onBusyChanged});
 
   @override
   State<SignScreen> createState() => _SignScreenState();
@@ -54,6 +55,7 @@ class _SignScreenState extends State<SignScreen> {
   @override
   void initState() {
     super.initState();
+    installAfterSigning = store.installAfterSigning;
     for (final c in [bundle, name, version, buildCtrl]) {
       c.addListener(_persistDraft);
     }
@@ -91,7 +93,7 @@ class _SignScreenState extends State<SignScreen> {
       buildCtrl.text = (draft['build'] ?? '').toString();
       removeDevices = draft['removeDevices'] == true;
       multipleCopies = draft['multipleCopies'] == true;
-      installAfterSigning = draft['installAfterSigning'] == true;
+      installAfterSigning = store.installAfterSigning;
       _copySuffix = draft['copySuffix']?.toString();
       _bundleBeforeCopies = draft['bundleBeforeCopies']?.toString();
       _loadedPreparedPath = path;
@@ -131,6 +133,7 @@ class _SignScreenState extends State<SignScreen> {
 
   @override
   void dispose() {
+    if (busy) widget.onBusyChanged?.call(false);
     for (final c in [bundle, name, version, buildCtrl]) {
       c.removeListener(_persistDraft);
     }
@@ -480,6 +483,14 @@ class _SignScreenState extends State<SignScreen> {
     sheetOpen = false;
   }
 
+  void _setBusy(bool value) {
+    if (!mounted) return;
+    if (busy != value) {
+      setState(() => busy = value);
+      widget.onBusyChanged?.call(value);
+    }
+  }
+
   Future<void> _sign() async {
     final automatic = _usingAutomatic;
     final id = selectedIdentity;
@@ -493,10 +504,8 @@ class _SignScreenState extends State<SignScreen> {
       );
       return;
     }
-    setState(() {
-      busy = true;
-      progress = .18;
-    });
+    _setBusy(true);
+    if (mounted) setState(() => progress = .18);
     try {
       final options = SignOptions(
         bundleId: bundle.text.trim(),
@@ -583,10 +592,8 @@ class _SignScreenState extends State<SignScreen> {
       }
     } finally {
       if (mounted) {
-        setState(() {
-          busy = false;
-          progress = 0;
-        });
+        _setBusy(false);
+        setState(() => progress = 0);
       }
     }
   }
@@ -727,8 +734,9 @@ class _SignScreenState extends State<SignScreen> {
                   child: SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     value: installAfterSigning,
-                    onChanged: busy ? null : (value) {
+                    onChanged: busy ? null : (value) async {
                       setState(() => installAfterSigning = value);
+                      await store.setInstallAfterSigning(value);
                       _persistDraft();
                     },
                     secondary: Icon(CupertinoIcons.arrow_down_circle_fill, color: Theme.of(context).colorScheme.primary),

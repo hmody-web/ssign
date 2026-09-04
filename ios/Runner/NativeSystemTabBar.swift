@@ -86,14 +86,16 @@ final class NativeSystemTabBarPlugin: NSObject, FlutterPlugin {
         let app = payload["app"] as? [String: Any] ?? [:]
         let state = payload["state"] as? [String: Any] ?? [:]
         let isArabic = payload["isArabic"] as? Bool ?? false
+        let isDark = payload["isDark"] as? Bool ?? true
         let model = NativeAppSheetStateModel(state: state)
         activeAppSheetModel = model
-        let view = NativeAppSheetSwiftUIView(app: app, model: model, isArabic: isArabic) { action, value in
+        let view = NativeAppSheetSwiftUIView(app: app, model: model, isArabic: isArabic, isDark: isDark) { action, value in
             var args: [String: Any] = ["id": app["id"] as? String ?? "", "action": action]
             if let value { args["value"] = value }
             appSheetChannel?.invokeMethod("action", arguments: args)
         }
         let host = UIHostingController(rootView: view)
+        host.overrideUserInterfaceStyle = isDark ? .dark : .light
         host.modalPresentationStyle = .pageSheet
         if let sheet = host.sheetPresentationController {
             sheet.detents = [.large()]
@@ -866,7 +868,8 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
         }.resume()
     }
     private func loadRemoteImage(_ raw: String?, into view: UIImageView) {
-        guard let raw, let url = URL(string: raw), !raw.isEmpty else { view.image = UIImage(systemName: "app.fill"); return }
+        view.image = UIImage(named: "NoIcon")
+        guard let raw, let url = URL(string: raw), !raw.isEmpty else { return }
         if let cached = BoomaImageCache.shared.image(for: raw) { view.image = cached; return }
         URLSession.shared.dataTask(with: url) { data, _, _ in
             guard let data, let image = UIImage(data: data) else { return }
@@ -895,36 +898,54 @@ private struct BoomaCachedRemoteImage: View {
     let raw: String
     let contentMode: ContentMode
     @State private var image: UIImage?
+    @State private var loading = true
 
     init(_ raw: String, contentMode: ContentMode = .fill) {
         self.raw = raw
         self.contentMode = contentMode
         _image = State(initialValue: BoomaImageCache.shared.image(for: raw))
+        _loading = State(initialValue: BoomaImageCache.shared.image(for: raw) == nil)
     }
 
     var body: some View {
-        Group {
+        ZStack {
+            Image("NoIcon")
+                .resizable()
+                .aspectRatio(contentMode: contentMode)
             if let image {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
-            } else {
+                    .transition(.opacity)
+            } else if loading {
                 ProgressView()
-                    .onAppear(perform: load)
+                    .controlSize(.small)
+                    .background(.ultraThinMaterial, in: Circle())
             }
         }
+        .onAppear(perform: load)
     }
 
     private func load() {
-        guard image == nil, let url = URL(string: raw), !raw.isEmpty else { return }
+        guard image == nil, let url = URL(string: raw), !raw.isEmpty else {
+            loading = false
+            return
+        }
         if let cached = BoomaImageCache.shared.image(for: raw) {
             image = cached
+            loading = false
             return
         }
         URLSession.shared.dataTask(with: url) { data, _, _ in
-            guard let data, let loaded = UIImage(data: data) else { return }
+            guard let data, let loaded = UIImage(data: data) else {
+                DispatchQueue.main.async { loading = false }
+                return
+            }
             BoomaImageCache.shared.store(loaded, for: raw)
-            DispatchQueue.main.async { image = loaded }
+            DispatchQueue.main.async {
+                withAnimation(.easeOut(duration: 0.12)) { image = loaded }
+                loading = false
+            }
         }.resume()
     }
 }
@@ -934,6 +955,7 @@ private struct NativeAppSheetSwiftUIView: View {
     let app: [String: Any]
     @ObservedObject var model: NativeAppSheetStateModel
     let isArabic: Bool
+    let isDark: Bool
     let action: (String, Any?) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var selectedScreenshot: String?
@@ -1075,6 +1097,7 @@ private struct NativeAppSheetSwiftUIView: View {
             .environment(\.layoutDirection, isArabic ? .rightToLeft : .leftToRight)
         }
         .navigationViewStyle(StackNavigationViewStyle())
+        .preferredColorScheme(isDark ? .dark : .light)
     }
 
     @ViewBuilder private var appHeader: some View {
@@ -1112,9 +1135,9 @@ private struct NativeAppSheetSwiftUIView: View {
             if let raw = app["iconUrl"] as? String, !raw.isEmpty {
                 BoomaCachedRemoteImage(raw, contentMode: .fill)
             } else {
-                Image(systemName: "app.fill")
-                    .font(.system(size: 42))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Image("NoIcon")
+                    .resizable()
+                    .scaledToFill()
             }
         }
         .frame(width: 104, height: 104)
@@ -1135,7 +1158,7 @@ private struct NativeAppSheetSwiftUIView: View {
                     VStack(alignment: .center, spacing: 7) {
                         AsyncImage(url: URL(string: item["iconUrl"] as? String ?? "")) { phase in
                             if let image = phase.image { image.resizable().scaledToFill() }
-                            else { Image(systemName: "app.fill") }
+                            else { Image("NoIcon").resizable().scaledToFill() }
                         }
                         .frame(width: 76, height: 76).clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         Text(item["displayName"] as? String ?? "").font(.caption.bold()).lineLimit(1).frame(width: 92)

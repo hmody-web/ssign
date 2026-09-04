@@ -12,6 +12,7 @@ import '../services/signing_service.dart';
 import '../services/admin_service.dart';
 import '../services/app_store.dart';
 import '../services/ipa_library_service.dart';
+import '../services/library_sources_store.dart';
 import '../services/localized.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
@@ -70,7 +71,7 @@ class AppsScreen extends StatefulWidget {
 
 class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMixin {
   static const _nativeAppSheetChannel = MethodChannel('booma/native_app_sheet_channel');
-  static const _pageSize = 10;
+  static const _pageSize = 20;
   static const _cacheKey = 'ipa.library.cache.v3.merged';
   static const _cacheSyncKey = 'ipa.library.cache.synced.v3.merged';
   static const _syncEvery = Duration(minutes: 5);
@@ -78,10 +79,12 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   final _service = IpaLibraryService();
   final _downloads = AppDownloadManager.instance;
   final _store = AppStore.instance;
+  final _sources = LibrarySourcesStore.instance;
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
   final List<RemoteApp> _apps = [];
   List<RemoteApp>? _searchResults;
+  List<RemoteApp>? _sourceResults;
 
   Timer? _syncTimer;
   Timer? _searchDebounce;
@@ -99,28 +102,76 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   @override
   bool get wantKeepAlive => true;
 
+  static const _sourceFilterPrefix = '@source:';
+  static const _categoryFilterPrefix = '@category:';
+
+  String? get _selectedSourceId {
+    final value = _selectedCategory ?? '';
+    if (!value.startsWith(_sourceFilterPrefix)) return null;
+    return value.substring(_sourceFilterPrefix.length);
+  }
+
+  String? get _selectedRawCategory {
+    final value = _selectedCategory ?? '';
+    if (!value.startsWith(_categoryFilterPrefix)) return null;
+    return value.substring(_categoryFilterPrefix.length);
+  }
+
+  bool _isAppSourceEnabled(RemoteApp app) => _sources.isEnabled(
+        LibrarySourcesStore.sourceIdForStorage(app.storageType, app.id),
+      );
+
   List<RemoteApp> get _visibleApps {
     final term = _normalizeSearch(_searchController.text);
+    final selectedSource = _selectedSourceId;
     List<RemoteApp> source;
-    if (term.isEmpty) {
-      source = List<RemoteApp>.from(_apps);
+
+    if (selectedSource != null) {
+      source = List<RemoteApp>.from(_sourceResults ?? const <RemoteApp>[]);
+      if (term.isNotEmpty) {
+        source = source.where((app) {
+          final haystack = <String>[
+            app.name,
+            app.nameAr,
+            app.subtitle,
+            app.subtitleAr,
+            app.developerName,
+            app.bundleId,
+            app.category,
+          ].join(' ').toLowerCase();
+          return haystack.contains(term);
+        }).toList();
+      }
+    } else if (term.isEmpty) {
+      source = _apps.where(_isAppSourceEnabled).toList();
     } else {
-      final merged = <String, RemoteApp>{for (final app in _searchResults ?? const <RemoteApp>[]) app.id: app};
-      for (final app in _apps) {
+      final merged = <String, RemoteApp>{
+        for (final app in _searchResults ?? const <RemoteApp>[])
+          if (_isAppSourceEnabled(app)) app.id: app,
+      };
+      for (final app in _apps.where(_isAppSourceEnabled)) {
         final haystack = [
-          app.name, app.nameAr, app.subtitle, app.subtitleAr, app.developerName, app.category, _categoryArabic(app.category),
+          app.name,
+          app.nameAr,
+          app.subtitle,
+          app.subtitleAr,
+          app.developerName,
+          app.category,
+          _categoryArabic(app.category),
         ].join(' ').toLowerCase();
         if (haystack.contains(term)) merged[app.id] = app;
       }
       source = merged.values.toList();
     }
-    final category = _selectedCategory?.trim().toLowerCase();
+
+    final category = _selectedRawCategory?.trim().toLowerCase();
     if (category == null || category.isEmpty) return source;
     return source.where((app) => app.category.trim().toLowerCase() == category).toList();
   }
 
   List<String> get _categories {
     final values = _apps
+        .where(_isAppSourceEnabled)
         .map((app) => app.category.trim())
         .where((category) => category.isNotEmpty)
         .toSet()
@@ -129,12 +180,29 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     return values;
   }
 
+  List<String> get _filterValues => <String>[
+        ..._sources.enabledSources.map((source) => '$_sourceFilterPrefix${source.id}'),
+        ..._categories.map((category) => '$_categoryFilterPrefix$category'),
+      ];
+
+  String _filterDisplay(String value, bool isArabic) {
+    if (value.startsWith(_sourceFilterPrefix)) {
+      final id = value.substring(_sourceFilterPrefix.length);
+      return _sources.byId(id)?.name ?? id;
+    }
+    if (value.startsWith(_categoryFilterPrefix)) {
+      return _categoryDisplay(value.substring(_categoryFilterPrefix.length), isArabic);
+    }
+    return _categoryDisplay(value, isArabic);
+  }
+
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
     _downloads.addListener(_syncOpenNativeSheet);
     _store.addListener(_syncOpenNativeSheet);
+    _sources.addListener(_onSourcesChanged);
     if (Platform.isIOS) _nativeAppSheetChannel.setMethodCallHandler(_handleNativeSheetAction);
     AdminService.instance.deletedAppId.addListener(_onAdminDeletedApp);
     _restoreThenLoad();
@@ -150,9 +218,64 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     _searchController.dispose();
     _downloads.removeListener(_syncOpenNativeSheet);
     _store.removeListener(_syncOpenNativeSheet);
+    _sources.removeListener(_onSourcesChanged);
     _scrollController.dispose();
     _service.close();
     super.dispose();
+  }
+
+  void _onSourcesChanged() {
+    final selected = _selectedSourceId;
+    if (selected != null && (_sources.byId(selected) == null || !_sources.isEnabled(selected))) {
+      _selectedCategory = null;
+      _sourceResults = null;
+    }
+    if (mounted) setState(() {});
+    if (_searchController.text.trim().isNotEmpty) {
+      unawaited(_runSearch());
+    } else {
+      unawaited(_loadInitial(preserveSelection: true));
+    }
+  }
+
+  void _onFilterChanged(String? value) {
+    if (_selectedCategory == value) return;
+    setState(() {
+      _selectedCategory = value;
+      _sourceResults = value?.startsWith(_sourceFilterPrefix) == true
+          ? <RemoteApp>[]
+          : null;
+      _hasMore = true;
+    });
+    if (_selectedSourceId != null) {
+      unawaited(_loadSelectedSource());
+    }
+  }
+
+  Future<void> _loadSelectedSource() async {
+    final sourceId = _selectedSourceId;
+    if (sourceId == null) return;
+    final term = _searchController.text.trim();
+    final generation = ++_searchGeneration;
+    if (mounted) setState(() { _loading = true; _error = null; });
+    try {
+      final items = await _service.fetchApps(
+        offset: 0,
+        limit: _pageSize,
+        search: term,
+        sourceId: sourceId,
+      ).timeout(const Duration(seconds: 14));
+      if (!mounted || generation != _searchGeneration || sourceId != _selectedSourceId) return;
+      setState(() {
+        _sourceResults = items;
+        _hasMore = items.length == _pageSize;
+      });
+    } catch (e) {
+      if (!mounted || generation != _searchGeneration) return;
+      setState(() => _error = e.toString());
+    } finally {
+      if (mounted && generation == _searchGeneration) setState(() => _loading = false);
+    }
   }
 
   void _onAdminDeletedApp() {
@@ -162,6 +285,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     final before = _apps.length;
     _apps.removeWhere((app) => app.id == appId);
     _searchResults?.removeWhere((app) => app.id == appId);
+    _sourceResults?.removeWhere((app) => app.id == appId);
     if (_apps.length != before && mounted) {
       setState(() {});
       _saveCache();
@@ -217,7 +341,11 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     }
   }
 
-  Future<void> _loadInitial() async {
+  Future<void> _loadInitial({bool preserveSelection = false}) async {
+    if (_selectedSourceId != null && preserveSelection) {
+      await _loadSelectedSource();
+      return;
+    }
     final generation = ++_searchGeneration;
     setState(() {
       _loading = true;
@@ -245,7 +373,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   }
 
   Future<void> _syncIncrementally() async {
-    if (_syncing || _searchController.text.trim().isNotEmpty) return;
+    if (_syncing || _searchController.text.trim().isNotEmpty || _selectedSourceId != null) return;
     _syncing = true;
     try {
       final limit = math.max(_pageSize, _apps.length);
@@ -288,13 +416,26 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   Future<void> _loadMore() async {
     if (_loading || _loadingMore || !_hasMore) return;
     final term = _searchController.text.trim();
-    final current = term.isEmpty ? _apps : (_searchResults ?? const <RemoteApp>[]);
+    final sourceId = _selectedSourceId;
+    final current = sourceId != null
+        ? (_sourceResults ?? const <RemoteApp>[])
+        : (term.isEmpty ? _apps : (_searchResults ?? const <RemoteApp>[]));
     setState(() => _loadingMore = true);
     try {
-      final items = await _service.fetchApps(offset: current.length, limit: _pageSize, search: term);
+      final items = await _service.fetchApps(
+        offset: current.length,
+        limit: _pageSize,
+        search: term,
+        sourceId: sourceId,
+      );
       if (!mounted) return;
       setState(() {
-        if (term.isEmpty) {
+        if (sourceId != null) {
+          final results = _sourceResults ?? <RemoteApp>[];
+          final ids = results.map((e) => e.id).toSet();
+          results.addAll(items.where((e) => ids.add(e.id)));
+          _sourceResults = results;
+        } else if (term.isEmpty) {
           final ids = _apps.map((e) => e.id).toSet();
           _apps.addAll(items.where((e) => ids.add(e.id)));
         } else {
@@ -305,7 +446,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
         }
         _hasMore = items.length == _pageSize;
       });
-      if (term.isEmpty) await _saveCache();
+      if (sourceId == null && term.isEmpty) await _saveCache();
     } catch (_) {
       // Preserve current content.
     } finally {
@@ -315,17 +456,22 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
 
   void _onSearchChanged(String _) {
     _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 380), _runSearch);
+    _searchDebounce = Timer(const Duration(milliseconds: 260), _runSearch);
     setState(() {});
   }
 
   Future<void> _runSearch() async {
     final term = _searchController.text.trim();
+    final sourceId = _selectedSourceId;
     if (term.isEmpty) {
-      setState(() {
-        _searchResults = null;
-        _hasMore = _apps.length >= _pageSize;
-      });
+      if (sourceId != null) {
+        await _loadSelectedSource();
+      } else {
+        setState(() {
+          _searchResults = null;
+          _hasMore = _apps.length >= _pageSize;
+        });
+      }
       return;
     }
 
@@ -336,10 +482,19 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
       _hasMore = true;
     });
     try {
-      final items = await _service.fetchApps(offset: 0, limit: _pageSize, search: term);
+      final items = await _service.fetchApps(
+        offset: 0,
+        limit: _pageSize,
+        search: term,
+        sourceId: sourceId,
+      );
       if (!mounted || generation != _searchGeneration) return;
       setState(() {
-        _searchResults = items;
+        if (sourceId != null) {
+          _sourceResults = items;
+        } else {
+          _searchResults = items;
+        }
         _hasMore = items.length == _pageSize;
       });
     } catch (e) {
@@ -355,7 +510,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     final id = _openNativeAppId;
     if (!Platform.isIOS || id == null) return;
     RemoteApp? current;
-    for (final app in _apps) {
+    for (final app in <RemoteApp>[..._apps, ...?_sourceResults, ...?_searchResults]) {
       if (app.id == id) { current = app; break; }
     }
     if (current == null) return;
@@ -396,7 +551,9 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     final id = args['id']?.toString() ?? '';
     final action = args['action']?.toString() ?? '';
     RemoteApp? app;
-    for (final candidate in _apps) { if (candidate.id == id) { app = candidate; break; } }
+    for (final candidate in <RemoteApp>[..._apps, ...?_sourceResults, ...?_searchResults]) {
+      if (candidate.id == id) { app = candidate; break; }
+    }
     if (app == null) return null;
     final selectedApp = app;
     final state = _downloads.stateFor(selectedApp);
@@ -435,11 +592,17 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     if (app.size >= 1024 * 1024 * 1024) sizeText = '${(app.size / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
     else if (app.size >= 1024 * 1024) sizeText = '${(app.size / 1024 / 1024).toStringAsFixed(0)} MB';
     else if (app.size > 0) sizeText = '${(app.size / 1024).toStringAsFixed(0)} KB';
-    final similar = _apps
+    final poolById = <String, RemoteApp>{
+      for (final item in _apps) item.id: item,
+      for (final item in _sourceResults ?? const <RemoteApp>[]) item.id: item,
+      for (final item in _searchResults ?? const <RemoteApp>[]) item.id: item,
+    };
+    final pool = poolById.values.where(_isAppSourceEnabled).toList();
+    final similar = pool
         .where((item) => item.id != app.id && app.category.trim().isNotEmpty && item.category.trim().toLowerCase() == app.category.trim().toLowerCase())
         .take(8)
         .toList();
-    final recommendedPool = _apps.where((item) => item.id != app.id && !similar.any((s) => s.id == item.id)).toList()
+    final recommendedPool = pool.where((item) => item.id != app.id && !similar.any((s) => s.id == item.id)).toList()
       ..sort((a, b) {
         final ad = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
         final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
@@ -464,6 +627,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
         'stage': state.stage, 'hasFile': state.file != null, 'autoSign': _store.autoSignAfterDownload,
       },
       'isArabic': _store.isArabic,
+      'isDark': Theme.of(context).brightness == Brightness.dark,
     };
   }
 
@@ -473,8 +637,13 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
       _nativeAppSheetChannel.invokeMethod<void>('presentAppSheet', _nativeAppPayload(app));
       return;
     }
+    final relatedPool = <String, RemoteApp>{
+      for (final item in _apps) item.id: item,
+      for (final item in _sourceResults ?? const <RemoteApp>[]) item.id: item,
+      for (final item in _searchResults ?? const <RemoteApp>[]) item.id: item,
+    }.values.where(_isAppSourceEnabled).toList();
     Navigator.of(context).push(CupertinoPageRoute(builder: (_) => AppDetailScreen(
-      app: app, isArabic: _store.isArabic, libraryApps: List<RemoteApp>.unmodifiable(_apps),
+      app: app, isArabic: _store.isArabic, libraryApps: List<RemoteApp>.unmodifiable(relatedPool),
       onSign: (file) => widget.onSignRequested?.call(file),
     )));
   }
@@ -486,7 +655,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   }
 
   List<RemoteApp> get _featured {
-    final list = _apps.where((a) => a.screenshots.isNotEmpty).toList()
+    final list = _apps.where((a) => a.screenshots.isNotEmpty && _isAppSourceEnabled(a)).toList()
       ..sort((a, b) {
         final ad = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
         final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
@@ -525,7 +694,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
       child: CustomScrollView(
         key: const PageStorageKey('apps-scroll-view'),
         controller: _scrollController,
-        cacheExtent: 650,
+        cacheExtent: 1100,
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
         slivers: [
@@ -577,24 +746,26 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
                             ),
                           ),
                   ),
-                  if (featured.isNotEmpty && _searchController.text.trim().isEmpty) ...[
-                    const SizedBox(height: 4),
-                    _FeaturedCarousel(apps: featured, isArabic: isArabic, onTap: _openDetails),
-                    const SizedBox(height: 16),
-                    if (_categories.isNotEmpty)
+                  if (_searchController.text.trim().isEmpty) ...[
+                    if (featured.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      _FeaturedCarousel(apps: featured, isArabic: isArabic, onTap: _openDetails),
+                      const SizedBox(height: 16),
+                    ],
+                    if (_filterValues.isNotEmpty)
                       Platform.isIOS
                           ? NativeIOSCategories(
-                              values: _categories,
-                              labels: _categories.map((e) => _categoryDisplay(e, isArabic)).toList(),
+                              values: _filterValues,
+                              labels: _filterValues.map((e) => _filterDisplay(e, isArabic)).toList(),
                               selected: _selectedCategory,
                               isArabic: isArabic,
-                              onChanged: (value) => setState(() => _selectedCategory = value),
+                              onChanged: _onFilterChanged,
                             )
                           : _CategoryShelf(
-                              categories: _categories,
+                              categories: _filterValues,
                               isArabic: isArabic,
                               selected: _selectedCategory,
-                              onChanged: (value) => setState(() => _selectedCategory = value),
+                              onChanged: _onFilterChanged,
                             ),
                     const SizedBox(height: 22),
                     _AppsSectionDivider(title: tr('التطبيقات', 'Apps')),
@@ -639,18 +810,19 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
                     return const Padding(padding: EdgeInsets.symmetric(vertical: 18), child: Center(child: CupertinoActivityIndicator()));
                   }
                   final app = apps[index];
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _AppDownloadStateBuilder(
-                      app: app,
-                      builder: (context, state) {
-                        return _AppCard(
-                          app: app, isArabic: isArabic, state: state,
-                          onDownload: () => _startDownload(app), onTogglePause: () => _downloads.togglePause(app),
-                          onSign: (file) => widget.onSignRequested?.call(file), onTap: () => _openDetails(app),
-                        );
-                      },
-                    ),
+                  return _AppDownloadStateBuilder(
+                    app: app,
+                    builder: (context, state) {
+                      return _AppCard(
+                        app: app,
+                        isArabic: isArabic,
+                        state: state,
+                        onDownload: () => _startDownload(app),
+                        onTogglePause: () => _downloads.togglePause(app),
+                        onSign: (file) => widget.onSignRequested?.call(file),
+                        onTap: () => _openDetails(app),
+                      );
+                    },
                   );
                 },
               ),
@@ -688,6 +860,7 @@ class _CategoryShelf extends StatelessWidget {
 
   IconData _iconFor(String category) {
     final c = category.toLowerCase();
+    if (c.startsWith('@source:')) return CupertinoIcons.tray_full_fill;
     if (c.contains('game') || c.contains('لعب')) return CupertinoIcons.game_controller_solid;
     if (c.contains('social') || c.contains('تواصل')) return CupertinoIcons.person_2_fill;
     if (c.contains('photo') || c.contains('صور')) return CupertinoIcons.camera_fill;
@@ -755,7 +928,19 @@ class _CategoryShelf extends StatelessWidget {
           itemBuilder: (context, index) {
             final isAll = index == 0;
             final rawCategory = isAll ? '' : categories[index - 1];
-            final category = isAll ? tr('الكل', 'All') : _categoryDisplay(rawCategory, isArabic);
+            final category = isAll
+                ? tr('الكل', 'All')
+                : rawCategory.startsWith('@source:')
+                    ? (LibrarySourcesStore.instance
+                            .byId(rawCategory.substring('@source:'.length))
+                            ?.name ??
+                        rawCategory.substring('@source:'.length))
+                    : _categoryDisplay(
+                        rawCategory.startsWith('@category:')
+                            ? rawCategory.substring('@category:'.length)
+                            : rawCategory,
+                        isArabic,
+                      );
             final active = isAll ? allSelected : selected == rawCategory;
             return GestureDetector(
               onTap: () => onChanged(isAll ? null : rawCategory),
@@ -1065,25 +1250,56 @@ class _AppDownloadStateBuilderState extends State<_AppDownloadStateBuilder> {
   Widget build(BuildContext context) => widget.builder(context, _state);
 }
 
-class _FastSystemAppCard extends StatelessWidget {
+class _PressableAppRow extends StatefulWidget {
   final Widget child;
-  final EdgeInsetsGeometry padding;
-  const _FastSystemAppCard({required this.child, this.padding = const EdgeInsets.all(13)});
+  final VoidCallback onTap;
+  const _PressableAppRow({required this.child, required this.onTap});
+
+  @override
+  State<_PressableAppRow> createState() => _PressableAppRowState();
+}
+
+class _PressableAppRowState extends State<_PressableAppRow> {
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed == value || !mounted) return;
+    setState(() => _pressed = value);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final bg = dark ? const Color(0xFF1C1C1E) : const Color(0xFFF2F2F7);
-    final border = dark ? Colors.white.withValues(alpha: .055) : Colors.black.withValues(alpha: .045);
+    final onSurface = Theme.of(context).colorScheme.onSurface;
     return RepaintBoundary(
-      child: Container(
-        padding: padding,
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: border, width: .6),
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerDown: (_) => _setPressed(true),
+        onPointerUp: (_) => _setPressed(false),
+        onPointerCancel: (_) => _setPressed(false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 90),
+            curve: Curves.easeOut,
+            padding: const EdgeInsets.fromLTRB(7, 12, 7, 12),
+            decoration: BoxDecoration(
+              color: _pressed ? onSurface.withValues(alpha: .055) : Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+              border: Border(
+                bottom: BorderSide(
+                  color: onSurface.withValues(alpha: .095),
+                  width: .55,
+                ),
+              ),
+            ),
+            child: AnimatedScale(
+              scale: _pressed ? .992 : 1,
+              duration: const Duration(milliseconds: 90),
+              child: widget.child,
+            ),
+          ),
         ),
-        child: child,
       ),
     );
   }
@@ -1112,46 +1328,42 @@ class _AppCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = app.displayName(isArabic);
     final subtitle = app.displaySubtitle(isArabic);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
+    return _PressableAppRow(
       onTap: onTap,
-      child: _FastSystemAppCard(
-        padding: const EdgeInsets.all(13),
-        child: Row(
-          children: [
-            _NetworkAppIcon(url: app.iconUrl, size: 62, radius: 16),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                  if (subtitle.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5))),
-                  ],
-                  const SizedBox(height: 5),
-                  Wrap(
-                    spacing: 7,
-                    runSpacing: 3,
-                    children: [
-                      if (app.version.isNotEmpty) _meta(context, 'v${app.version}'),
-                      if (app.size > 0) _meta(context, _size(app.size)),
-                      if (app.category.isNotEmpty) _meta(context, _categoryDisplay(app.category, isArabic)),
-                    ],
-                  ),
+      child: Row(
+        children: [
+          _NetworkAppIcon(url: app.iconUrl, size: 62, radius: 16),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                if (subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5))),
                 ],
-              ),
+                const SizedBox(height: 5),
+                Wrap(
+                  spacing: 7,
+                  runSpacing: 3,
+                  children: [
+                    if (app.version.isNotEmpty) _meta(context, 'v${app.version}'),
+                    if (app.size > 0) _meta(context, _size(app.size)),
+                    if (app.category.isNotEmpty) _meta(context, _categoryDisplay(app.category, isArabic)),
+                  ],
+                ),
+              ],
             ),
-            const SizedBox(width: 10),
-            _DownloadAction(
-              state: state,
-              onDownload: onDownload,
-              onPause: onTogglePause,
-              onSign: state.file == null ? null : () => onSign(state.file!),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 10),
+          _DownloadAction(
+            state: state,
+            onDownload: onDownload,
+            onPause: onTogglePause,
+            onSign: state.file == null ? null : () => onSign(state.file!),
+          ),
+        ],
       ),
     );
   }
@@ -1229,12 +1441,33 @@ class _DownloadAction extends StatelessWidget {
       );
     }
 
-    return CupertinoButton.tinted(
-      onPressed: onDownload,
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
-      borderRadius: BorderRadius.circular(18),
-      minSize: 36,
-      child: Text(tr('تنزيل', 'GET'), style: const TextStyle(fontWeight: FontWeight.w700)),
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF08090B),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: primary.withValues(alpha: .18), width: .65),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .16),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: CupertinoButton(
+        onPressed: onDownload,
+        color: Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+        borderRadius: BorderRadius.circular(18),
+        minSize: 36,
+        child: Text(
+          tr('تنزيل', 'GET'),
+          style: TextStyle(
+            color: primary,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1246,23 +1479,36 @@ class _NetworkAppIcon extends StatelessWidget {
   const _NetworkAppIcon({required this.url, required this.size, required this.radius});
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
-        child: Container(
-          width: size,
-          height: size,
-          color: Theme.of(context).colorScheme.primary.withValues(alpha: .12),
-          child: url.isEmpty
-              ? Icon(CupertinoIcons.app_fill, color: Theme.of(context).colorScheme.primary, size: size * .48)
-              : Image.network(
-                  url,
-                  fit: BoxFit.cover,
-                  cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round(),
-                  cacheHeight: (size * MediaQuery.devicePixelRatioOf(context)).round(),
-                  filterQuality: FilterQuality.low,
-                  gaplessPlayback: true,
-                  errorBuilder: (_, __, ___) => Icon(CupertinoIcons.app_fill, color: Theme.of(context).colorScheme.primary, size: size * .48),
-                ),
-        ),
-      );
+  Widget build(BuildContext context) {
+    final placeholder = Image.asset(
+      'assets/images/noicon.jpg',
+      width: size,
+      height: size,
+      fit: BoxFit.cover,
+      filterQuality: FilterQuality.low,
+    );
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: url.trim().isEmpty
+            ? placeholder
+            : Image.network(
+                url,
+                fit: BoxFit.cover,
+                cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round(),
+                cacheHeight: (size * MediaQuery.devicePixelRatioOf(context)).round(),
+                filterQuality: FilterQuality.low,
+                gaplessPlayback: true,
+                frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                  if (wasSynchronouslyLoaded || frame != null) return child;
+                  return placeholder;
+                },
+                errorBuilder: (_, __, ___) => placeholder,
+              ),
+      ),
+    );
+  }
 }
+
