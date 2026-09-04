@@ -6,6 +6,7 @@ import '../services/admin_service.dart';
 import '../services/localized.dart';
 import '../services/signing_service.dart';
 import '../services/library_sources_store.dart';
+import '../services/source_catalog_service.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/native_ios_controls.dart';
@@ -388,11 +389,220 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 22),
+                  _sourceCatalogSection(context),
                 ],
               );
             },
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _sourceCatalogSection(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: .48);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: primary.withValues(alpha: .11),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: Icon(CupertinoIcons.square_grid_2x2_fill, color: primary, size: 18),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(tr('مكتبة المصادر', 'Source Library'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 2),
+                  Text(
+                    tr('مصادر جاهزة يضيفها الأدمن من الخادم', 'Ready-to-use sources published by the admin'),
+                    style: TextStyle(fontSize: 11.5, color: muted),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: BoxDecoration(
+                color: primary.withValues(alpha: .08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(tr('محدّثة', 'Live'), style: TextStyle(color: primary, fontSize: 9.5, fontWeight: FontWeight.w900)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        FutureBuilder<List<SourceCatalogItem>>(
+          future: SourceCatalogService.instance.fetch(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+              return GlassCard(
+                padding: const EdgeInsets.symmetric(vertical: 28),
+                child: const Center(child: CupertinoActivityIndicator(radius: 12)),
+              );
+            }
+            if (snapshot.hasError) {
+              return GlassCard(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    Icon(CupertinoIcons.exclamationmark_triangle_fill, color: CupertinoColors.systemOrange, size: 27),
+                    const SizedBox(height: 8),
+                    Text(tr('تعذر تحميل مكتبة المصادر', 'Could not load source library'), style: const TextStyle(fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 4),
+                    Text('${snapshot.error}'.replaceFirst('Exception: ', ''), textAlign: TextAlign.center, style: TextStyle(fontSize: 10.5, color: muted)),
+                  ],
+                ),
+              );
+            }
+            final items = snapshot.data ?? const <SourceCatalogItem>[];
+            if (items.isEmpty) {
+              return GlassCard(
+                padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 16),
+                child: Column(
+                  children: [
+                    Icon(CupertinoIcons.archivebox, color: muted, size: 25),
+                    const SizedBox(height: 7),
+                    Text(tr('لا توجد مصادر منشورة حالياً', 'No published sources yet'), style: const TextStyle(fontWeight: FontWeight.w800)),
+                  ],
+                ),
+              );
+            }
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = constraints.maxWidth >= 620 ? 3 : 2;
+                return GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: items.length,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    childAspectRatio: columns == 3 ? .78 : .72,
+                  ),
+                  itemBuilder: (context, index) => _sourceCatalogCard(context, items[index]),
+                );
+              },
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _sourceCatalogCard(BuildContext context, SourceCatalogItem item) {
+    final store = LibrarySourcesStore.instance;
+    final primary = Theme.of(context).colorScheme.primary;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final muted = onSurface.withValues(alpha: .48);
+    final added = store.containsCatalog(item.id, url: item.url);
+    return GlassCard(
+      radius: 23,
+      padding: const EdgeInsets.fromLTRB(10, 11, 10, 10),
+      child: Column(
+        children: [
+          Container(
+            width: 68,
+            height: 68,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(19),
+              color: primary.withValues(alpha: .08),
+              border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: .65)),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: item.imageUrl.isEmpty
+                ? Icon(CupertinoIcons.square_stack_3d_up_fill, color: primary, size: 29)
+                : Image.network(
+                    item.imageUrl,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.medium,
+                    errorBuilder: (_, __, ___) => Icon(CupertinoIcons.square_stack_3d_up_fill, color: primary, size: 29),
+                  ),
+          ),
+          const SizedBox(height: 9),
+          Text(
+            item.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 4),
+          Expanded(
+            child: Text(
+              item.description.trim().isEmpty ? tr('مكتبة تطبيقات جاهزة للإضافة', 'Ready app source') : item.description.trim(),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 9.8, height: 1.35, color: muted),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            height: 34,
+            child: CupertinoButton(
+              padding: EdgeInsets.zero,
+              borderRadius: BorderRadius.circular(12),
+              color: added ? onSurface.withValues(alpha: .07) : primary.withValues(alpha: .14),
+              disabledColor: onSurface.withValues(alpha: .055),
+              onPressed: added
+                  ? null
+                  : () async {
+                      try {
+                        await store.addCatalogSource(
+                          catalogId: item.id,
+                          name: item.name,
+                          url: item.url,
+                          description: item.description,
+                          imageUrl: item.imageUrl,
+                        );
+                        if (context.mounted) {
+                          showAppNotice(
+                            context,
+                            tr('تمت إضافة ${item.name}', '${item.name} added'),
+                            type: AppNoticeType.success,
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          showAppNotice(
+                            context,
+                            e.toString().replaceFirst('FormatException: ', ''),
+                            type: AppNoticeType.error,
+                          );
+                        }
+                      }
+                    },
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(added ? CupertinoIcons.checkmark_circle_fill : CupertinoIcons.plus_circle_fill, size: 14, color: added ? muted : primary),
+                  const SizedBox(width: 5),
+                  Flexible(
+                    child: Text(
+                      added ? tr('مضاف', 'Added') : tr('إضافة المصدر', 'Add Source'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: added ? muted : primary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -409,17 +619,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Row(
         children: [
           Container(
-            width: 34,
-            height: 34,
+            width: 38,
+            height: 38,
             decoration: BoxDecoration(
               color: primary.withValues(alpha: source.enabled ? .13 : .055),
-              borderRadius: BorderRadius.circular(11),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(
-              source.id == 'nsign' ? CupertinoIcons.cloud_download_fill : CupertinoIcons.tray_full_fill,
-              size: 17,
-              color: source.enabled ? primary : muted,
-            ),
+            clipBehavior: Clip.antiAlias,
+            child: source.imageUrl.trim().isNotEmpty
+                ? Image.network(
+                    source.imageUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Icon(
+                      source.id == 'nsign' ? CupertinoIcons.cloud_download_fill : CupertinoIcons.tray_full_fill,
+                      size: 17,
+                      color: source.enabled ? primary : muted,
+                    ),
+                  )
+                : Icon(
+                    source.id == 'nsign' ? CupertinoIcons.cloud_download_fill : CupertinoIcons.tray_full_fill,
+                    size: 17,
+                    color: source.enabled ? primary : muted,
+                  ),
           ),
           const SizedBox(width: 9),
           Expanded(
@@ -452,13 +673,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ],
                 ),
+                if (source.description.trim().isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    source.description.trim(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 10.5, color: muted),
+                  ),
+                ],
                 const SizedBox(height: 2),
                 Text(
                   host,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textDirection: TextDirection.ltr,
-                  style: TextStyle(fontSize: 10.5, color: muted),
+                  style: TextStyle(fontSize: 9.5, color: muted.withValues(alpha: .84)),
                 ),
               ],
             ),

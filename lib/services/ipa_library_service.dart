@@ -461,8 +461,14 @@ class IpaLibraryService {
     final cached = _nsignPageCache[safePage];
     if (cached != null) return cached;
 
+    // The iPAsOON catalogue always sends the `search` parameter from its
+    // web client, even when it is empty. Some server configurations return
+    // no catalogue rows when that parameter is omitted.
     final uri = Uri.parse(_nsignApi).replace(
-      queryParameters: <String, String>{'page': '$safePage'},
+      queryParameters: <String, String>{
+        'page': '$safePage',
+        'search': '',
+      },
     );
     final decoded = await _nsignRequest(uri);
     final rawApps = _appstarAppsList(decoded);
@@ -647,7 +653,17 @@ class IpaLibraryService {
     var apps = _customSourceCache[source.id];
     if (apps == null || cachedAt == null ||
         now.difference(cachedAt) >= _customSourceCacheDuration) {
-      final uri = Uri.parse(source.url);
+      var uri = Uri.parse(source.url);
+      // iPAsOON/NSign exposes a paged catalogue endpoint. Make manually
+      // added links such as `https://ipasoon.icu/apps.php` work without
+      // requiring the user to know the query-string format. Preserve any
+      // parameters they supplied and only fill the missing defaults.
+      if (_isIpasoonCatalogUri(uri)) {
+        final query = Map<String, String>.from(uri.queryParameters);
+        query.putIfAbsent('page', () => '1');
+        query.putIfAbsent('search', () => '');
+        uri = uri.replace(queryParameters: query);
+      }
       final response = await _jsonGet(uri);
       final body = await utf8.decoder.bind(response).join();
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -1177,6 +1193,14 @@ class IpaLibraryService {
     }
 
     if (app.storageType.startsWith('custom:')) {
+      // A manually-added iPAsOON/NSign catalogue row intentionally does not
+      // contain the IPA URL. Resolve it lazily using the same app id endpoint
+      // as the built-in NSign source.
+      final customSource = LibrarySourcesStore.instance.byId(app.storageType);
+      final sourceUri = customSource == null ? null : Uri.tryParse(customSource.url);
+      if (sourceUri != null && _isIpasoonCatalogUri(sourceUri)) {
+        return _resolveNsignDownload(app);
+      }
       throw const HttpException('المصدر المضاف لم يرجع رابط IPA مباشرًا لهذا التطبيق');
     }
 
@@ -1522,15 +1546,35 @@ class IpaLibraryService {
     }
   }
 
+  bool _isIpasoonCatalogUri(Uri uri) {
+    final host = uri.host.toLowerCase();
+    final path = uri.path.toLowerCase();
+    return (host == 'ipasoon.icu' || host.endsWith('.ipasoon.icu')) &&
+        path.endsWith('/apps.php');
+  }
+
   Future<HttpClientResponse> _jsonGet(Uri uri) async {
     final request = await _client.getUrl(uri);
     request.followRedirects = true;
     request.maxRedirects = 8;
-    request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+    request.headers.set(HttpHeaders.acceptHeader, 'application/json, text/plain, */*');
     request.headers.set(
       HttpHeaders.userAgentHeader,
       'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1',
     );
+
+    // Match the same-origin browser request used by the public applications
+    // page. This avoids the catalogue being treated as a generic/bot request
+    // by hosting/WAF rules while still using the public JSON endpoint.
+    if (_isIpasoonCatalogUri(uri)) {
+      request.headers.set(HttpHeaders.refererHeader, 'https://ipasoon.icu/apps/');
+      request.headers.set('Origin', 'https://ipasoon.icu');
+      request.headers.set(HttpHeaders.acceptLanguageHeader, 'ar-IQ,ar;q=0.9,en;q=0.8');
+      request.headers.set('Sec-Fetch-Site', 'same-origin');
+      request.headers.set('Sec-Fetch-Mode', 'cors');
+      request.headers.set('Sec-Fetch-Dest', 'empty');
+    }
+
     request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
     request.headers.set('Pragma', 'no-cache');
     return request.close();

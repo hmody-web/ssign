@@ -9,6 +9,9 @@ class LibrarySourceConfig {
   final String kind;
   final bool builtIn;
   final bool enabled;
+  final String description;
+  final String imageUrl;
+  final String catalogId;
 
   const LibrarySourceConfig({
     required this.id,
@@ -17,9 +20,19 @@ class LibrarySourceConfig {
     required this.kind,
     required this.builtIn,
     required this.enabled,
+    this.description = '',
+    this.imageUrl = '',
+    this.catalogId = '',
   });
 
-  LibrarySourceConfig copyWith({String? name, String? url, bool? enabled}) =>
+  LibrarySourceConfig copyWith({
+    String? name,
+    String? url,
+    bool? enabled,
+    String? description,
+    String? imageUrl,
+    String? catalogId,
+  }) =>
       LibrarySourceConfig(
         id: id,
         name: name ?? this.name,
@@ -27,6 +40,9 @@ class LibrarySourceConfig {
         kind: kind,
         builtIn: builtIn,
         enabled: enabled ?? this.enabled,
+        description: description ?? this.description,
+        imageUrl: imageUrl ?? this.imageUrl,
+        catalogId: catalogId ?? this.catalogId,
       );
 
   Map<String, dynamic> toJson() => {
@@ -36,6 +52,9 @@ class LibrarySourceConfig {
         'kind': kind,
         'builtIn': builtIn,
         'enabled': enabled,
+        'description': description,
+        'imageUrl': imageUrl,
+        'catalogId': catalogId,
       };
 
   factory LibrarySourceConfig.fromJson(Map<String, dynamic> json) =>
@@ -46,6 +65,9 @@ class LibrarySourceConfig {
         kind: (json['kind'] ?? 'custom').toString(),
         builtIn: json['builtIn'] == true,
         enabled: json['enabled'] != false,
+        description: (json['description'] ?? '').toString(),
+        imageUrl: (json['imageUrl'] ?? json['image_url'] ?? '').toString(),
+        catalogId: (json['catalogId'] ?? json['catalog_id'] ?? '').toString(),
       );
 }
 
@@ -146,6 +168,27 @@ class LibrarySourcesStore extends ChangeNotifier {
     return null;
   }
 
+  LibrarySourceConfig? byUrl(String url) {
+    final normalized = url.trim();
+    for (final source in _sources) {
+      if (source.url.trim() == normalized) return source;
+    }
+    return null;
+  }
+
+  LibrarySourceConfig? byCatalogId(String catalogId) {
+    final normalized = catalogId.trim();
+    if (normalized.isEmpty) return null;
+    for (final source in _sources) {
+      if (source.catalogId.trim() == normalized) return source;
+    }
+    return null;
+  }
+
+  bool containsUrl(String url) => byUrl(url) != null;
+  bool containsCatalog(String catalogId, {String url = ''}) =>
+      byCatalogId(catalogId) != null || (url.trim().isNotEmpty && containsUrl(url));
+
   Future<void> setEnabled(String id, bool value) async {
     final index = _sources.indexWhere((source) => source.id == id);
     if (index < 0 || _sources[index].enabled == value) return;
@@ -157,33 +200,72 @@ class LibrarySourcesStore extends ChangeNotifier {
   Future<LibrarySourceConfig> addCustomSource({
     required String url,
     String? name,
+    String description = '',
+    String imageUrl = '',
+    String catalogId = '',
   }) async {
     final normalized = url.trim();
     final uri = Uri.tryParse(normalized);
-    if (uri == null || !uri.hasScheme || (uri.scheme != 'https' && uri.scheme != 'http')) {
+    if (uri == null ||
+        !uri.hasScheme ||
+        (uri.scheme != 'https' && uri.scheme != 'http')) {
       throw const FormatException('رابط المصدر غير صالح');
     }
-    final duplicate = _sources.where((s) => s.url.trim() == normalized).toList();
-    if (duplicate.isNotEmpty) {
-      final existing = duplicate.first;
-      if (!existing.enabled) await setEnabled(existing.id, true);
-      return byId(existing.id) ?? existing;
+
+    final safeCatalog = catalogId.trim();
+    final duplicateIndex = _sources.indexWhere((s) =>
+        (safeCatalog.isNotEmpty && s.catalogId.trim() == safeCatalog) ||
+        s.url.trim() == normalized);
+    if (duplicateIndex >= 0) {
+      final existing = _sources[duplicateIndex];
+      final updated = existing.copyWith(
+        enabled: true,
+        name: (name ?? '').trim().isEmpty ? existing.name : name!.trim(),
+        url: normalized,
+        description: description.trim().isEmpty ? existing.description : description.trim(),
+        imageUrl: imageUrl.trim().isEmpty ? existing.imageUrl : imageUrl.trim(),
+        catalogId: safeCatalog.isEmpty ? existing.catalogId : safeCatalog,
+      );
+      _sources[duplicateIndex] = updated;
+      await _save();
+      notifyListeners();
+      return updated;
     }
 
     final hostName = uri.host.replaceFirst(RegExp(r'^www\.'), '');
     final source = LibrarySourceConfig(
-      id: 'custom:${DateTime.now().microsecondsSinceEpoch}',
+      id: safeCatalog.isNotEmpty
+          ? 'catalog:$safeCatalog'
+          : 'custom:${DateTime.now().microsecondsSinceEpoch}',
       name: (name ?? '').trim().isEmpty ? hostName : name!.trim(),
       url: normalized,
       kind: 'custom',
       builtIn: false,
       enabled: true,
+      description: description.trim(),
+      imageUrl: imageUrl.trim(),
+      catalogId: safeCatalog,
     );
     _sources.add(source);
     await _save();
     notifyListeners();
     return source;
   }
+
+  Future<LibrarySourceConfig> addCatalogSource({
+    required String catalogId,
+    required String name,
+    required String url,
+    String description = '',
+    String imageUrl = '',
+  }) =>
+      addCustomSource(
+        url: url,
+        name: name,
+        description: description,
+        imageUrl: imageUrl,
+        catalogId: catalogId,
+      );
 
   Future<void> removeCustomSource(String id) async {
     _sources.removeWhere((source) => source.id == id && !source.builtIn);
@@ -200,7 +282,9 @@ class LibrarySourcesStore extends ChangeNotifier {
 
   static String sourceIdForStorage(String storageType, String appId) {
     final storage = storageType.trim().toLowerCase();
-    if (storage.startsWith('custom:')) return storageType;
+    if (storage.startsWith('custom:') || storage.startsWith('catalog:')) {
+      return storageType;
+    }
     if (storage == 'alsaray' || appId.startsWith('alsaray:')) return 'alsaray';
     if (storage == 'zsign' || appId.startsWith('zsign:')) return 'zsign';
     if (storage == 'appstar' || appId.startsWith('appstar:')) return 'appstar';

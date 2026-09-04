@@ -7,6 +7,7 @@ import '../services/admin_service.dart';
 import '../services/ipa_library_service.dart';
 import '../services/signing_service.dart';
 import '../services/localized.dart';
+import '../services/source_catalog_service.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/native_material_controls.dart';
 import '../widgets/native_ios_controls.dart';
@@ -209,6 +210,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     if (changed == true) _load();
   }
 
+  Future<void> _openSources() async {
+    await Navigator.of(context).push(CupertinoPageRoute(builder: (_) => const AdminSourcesScreen()));
+  }
+
   Future<void> _delete(AdminApp app) async {
     final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
       title: const Text('حذف التطبيق؟'), content: Text('سيتم حذف ${app.name} وملف IPA نهائيًا من الخادم.'),
@@ -243,6 +248,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               Expanded(child: _stat('المساحة', _size(_data!.bytes), Icons.storage_rounded)),
             ]),
             const SizedBox(height: 14),
+            _sourceManagementCard(context),
+            const SizedBox(height: 14),
             NativeIOSTextField(controller: _queryController, onChanged: (v) => setState(() => _query = v), placeholder: 'ابحث بالاسم أو المطور أو Bundle ID', leadingSystemImage: 'magnifyingglass'),
             const SizedBox(height: 14),
             if (_loading) const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator()))
@@ -263,6 +270,35 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Widget _stat(String t, String v, IconData i) => GlassCard(child: Row(children: [Icon(i), const SizedBox(width: 11), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(t, style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5), fontSize: 12)), Text(v, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18))]))]));
 
+  Widget _sourceManagementCard(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: _openSources,
+      child: GlassCard(
+        padding: const EdgeInsets.all(15),
+        child: Row(children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: .12),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(CupertinoIcons.link, color: Theme.of(context).colorScheme.primary, size: 25),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('مصادر التطبيقات', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+            const SizedBox(height: 3),
+            Text('أضف وعدّل المصادر التي تظهر في مكتبة المصادر داخل بومة.', style: TextStyle(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5))),
+          ])),
+          Icon(CupertinoIcons.chevron_forward, size: 18, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .4)),
+        ]),
+      ),
+    ),
+  );
+
   Widget _appCard(AdminApp a) => GlassCard(
     padding: const EdgeInsets.all(12),
     child: Row(children: [
@@ -276,6 +312,281 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Widget _chip(String s) => Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary.withValues(alpha: .09), borderRadius: BorderRadius.circular(9)), child: Text(s, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700)));
   Widget _errorCard(String s) => Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.red.withValues(alpha: .1), borderRadius: BorderRadius.circular(18)), child: Text(s, style: const TextStyle(color: Colors.red)));
   String _size(int b) { if (b < 1024) return '$b B'; if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(1)} KB'; if (b < 1024 * 1024 * 1024) return '${(b / 1024 / 1024).toStringAsFixed(1)} MB'; return '${(b / 1024 / 1024 / 1024).toStringAsFixed(1)} GB'; }
+}
+
+class AdminSourcesScreen extends StatefulWidget {
+  const AdminSourcesScreen({super.key});
+  @override
+  State<AdminSourcesScreen> createState() => _AdminSourcesScreenState();
+}
+
+class _AdminSourcesScreenState extends State<AdminSourcesScreen> {
+  List<AdminSource> _sources = const [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      _sources = await AdminService.instance.sourceCatalog();
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+    }
+    if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _openForm([AdminSource? source]) async {
+    final changed = await Navigator.of(context).push<bool>(
+      CupertinoPageRoute(builder: (_) => AdminSourceFormScreen(source: source)),
+    );
+    if (changed == true) {
+      SourceCatalogService.instance.invalidate();
+      await _load();
+    }
+  }
+
+  Future<void> _delete(AdminSource source) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('حذف المصدر؟'),
+        content: Text('سيختفي «${source.name}» من مكتبة المصادر داخل بومة. لن يتم حذف التطبيقات من المصدر الخارجي.'),
+        actions: [
+          NativeCompatTextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')),
+          NativeCompatFilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('حذف')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await AdminService.instance.deleteSource(source.id);
+      SourceCatalogService.instance.invalidate();
+      await _load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('مصادر التطبيقات', style: TextStyle(fontWeight: FontWeight.w900)),
+        Text('مكتبة المصادر العامة', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500)),
+      ]),
+      backgroundColor: Colors.transparent,
+      scrolledUnderElevation: 0,
+      actions: [NativeCompatIconButton(onPressed: _load, icon: const Icon(CupertinoIcons.refresh)), const SizedBox(width: 6)],
+    ),
+    floatingActionButton: NativeIOSButton(title: 'إضافة مصدر', systemImage: 'plus', onPressed: () => _openForm(), prominent: true, width: 145, height: 50),
+    body: RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 110),
+        children: [
+          GlassCard(
+            padding: const EdgeInsets.all(18),
+            child: Row(children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: .12),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Icon(CupertinoIcons.square_stack_3d_up_fill, color: Theme.of(context).colorScheme.primary, size: 27),
+              ),
+              const SizedBox(width: 13),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('مكتبة مصادر بومة', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 19)),
+                const SizedBox(height: 4),
+                Text('أي مصدر تحفظه هنا يظهر تلقائياً للمستخدمين داخل الإعدادات ويمكن إضافته بضغطة واحدة.', style: TextStyle(fontSize: 11.5, height: 1.45, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5))),
+              ])),
+            ]),
+          ),
+          const SizedBox(height: 14),
+          if (_loading)
+            const Padding(padding: EdgeInsets.all(42), child: Center(child: CupertinoActivityIndicator(radius: 13)))
+          else if (_error != null)
+            Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.red.withValues(alpha: .08), borderRadius: BorderRadius.circular(18)), child: Text(_error!, style: const TextStyle(color: Colors.red)))
+          else if (_sources.isEmpty)
+            GlassCard(padding: const EdgeInsets.symmetric(vertical: 34, horizontal: 18), child: const Column(children: [Icon(CupertinoIcons.link, size: 30), SizedBox(height: 9), Text('لا توجد مصادر بعد', style: TextStyle(fontWeight: FontWeight.w900)), SizedBox(height: 4), Text('اضغط «إضافة مصدر» لإنشاء أول مصدر.', style: TextStyle(fontSize: 11))]))
+          else
+            ..._sources.map((source) => Padding(padding: const EdgeInsets.only(bottom: 10), child: _sourceCard(context, source))),
+        ],
+      ),
+    ),
+  );
+
+  Widget _sourceCard(BuildContext context, AdminSource source) => GlassCard(
+    padding: const EdgeInsets.all(12),
+    child: Row(children: [
+      Container(
+        width: 60,
+        height: 60,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(17),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: source.imageUrl.isEmpty
+            ? Icon(CupertinoIcons.link, color: Theme.of(context).colorScheme.primary, size: 28)
+            : Image.network(source.imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Icon(CupertinoIcons.link, color: Theme.of(context).colorScheme.primary, size: 28)),
+      ),
+      const SizedBox(width: 12),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text(source.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15))),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            decoration: BoxDecoration(color: (source.enabled ? CupertinoColors.systemGreen : CupertinoColors.systemGrey).withValues(alpha: .10), borderRadius: BorderRadius.circular(9)),
+            child: Text(source.enabled ? 'ظاهر' : 'مخفي', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: source.enabled ? CupertinoColors.systemGreen : CupertinoColors.systemGrey)),
+          ),
+        ]),
+        const SizedBox(height: 3),
+        Text(source.description.isEmpty ? source.url : source.description, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, height: 1.35, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5))),
+      ])),
+      PopupMenuButton<String>(
+        onSelected: (v) => v == 'edit' ? _openForm(source) : _delete(source),
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'edit', child: Row(children: [Icon(CupertinoIcons.pencil), SizedBox(width: 9), Text('تعديل')])),
+          PopupMenuItem(value: 'delete', child: Row(children: [Icon(CupertinoIcons.trash, color: Colors.red), SizedBox(width: 9), Text('حذف', style: TextStyle(color: Colors.red))])),
+        ],
+      ),
+    ]),
+  );
+}
+
+class AdminSourceFormScreen extends StatefulWidget {
+  final AdminSource? source;
+  const AdminSourceFormScreen({super.key, this.source});
+  @override
+  State<AdminSourceFormScreen> createState() => _AdminSourceFormScreenState();
+}
+
+class _AdminSourceFormScreenState extends State<AdminSourceFormScreen> {
+  late final TextEditingController _name;
+  late final TextEditingController _url;
+  late final TextEditingController _description;
+  late final TextEditingController _order;
+  String? _imagePath;
+  bool _enabled = true;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    final source = widget.source;
+    _name = TextEditingController(text: source?.name ?? '');
+    _url = TextEditingController(text: source?.url ?? '');
+    _description = TextEditingController(text: source?.description ?? '');
+    _order = TextEditingController(text: '${source?.sortOrder ?? 0}');
+    _enabled = source?.enabled ?? true;
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _url.dispose();
+    _description.dispose();
+    _order.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickImage() async {
+    final x = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 88, maxWidth: 1200, maxHeight: 1200);
+    if (x != null && mounted) setState(() => _imagePath = x.path);
+  }
+
+  Future<void> _save() async {
+    if (_name.text.trim().isEmpty) { setState(() => _error = 'اسم المصدر مطلوب.'); return; }
+    final uri = Uri.tryParse(_url.text.trim());
+    if (uri == null || !uri.hasScheme || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      setState(() => _error = 'رابط المصدر غير صالح.');
+      return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      await AdminService.instance.saveSource(
+        id: widget.source?.id ?? '',
+        name: _name.text.trim(),
+        url: _url.text.trim(),
+        description: _description.text.trim(),
+        enabled: _enabled,
+        sortOrder: int.tryParse(_order.text.trim()) ?? 0,
+        imagePath: _imagePath,
+      );
+      SourceCatalogService.instance.invalidate();
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) setState(() { _busy = false; _error = e.toString().replaceFirst('Exception: ', ''); });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentImage = widget.source?.imageUrl ?? '';
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.source == null ? 'إضافة مصدر' : 'تعديل المصدر', style: const TextStyle(fontWeight: FontWeight.w900)), backgroundColor: Colors.transparent, scrolledUnderElevation: 0),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 110),
+        children: [
+          GlassCard(
+            padding: const EdgeInsets.all(16),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Row(children: [
+                GestureDetector(
+                  onTap: _busy ? null : _pickImage,
+                  child: Container(
+                    width: 78,
+                    height: 78,
+                    decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary.withValues(alpha: .08), borderRadius: BorderRadius.circular(22), border: Border.all(color: Theme.of(context).dividerColor)),
+                    clipBehavior: Clip.antiAlias,
+                    child: _imagePath != null
+                        ? Image.file(File(_imagePath!), fit: BoxFit.cover)
+                        : currentImage.isNotEmpty
+                            ? Image.network(currentImage, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(CupertinoIcons.photo_on_rectangle))
+                            : const Icon(CupertinoIcons.photo_on_rectangle, size: 28),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('صورة المصدر', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                  const SizedBox(height: 3),
+                  Text('اختيارية • يفضّل أن تكون مربعة وواضحة', style: TextStyle(fontSize: 10.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48))),
+                  const SizedBox(height: 7),
+                  CupertinoButton(padding: EdgeInsets.zero, minSize: 28, onPressed: _busy ? null : _pickImage, child: const Text('اختيار صورة', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800))),
+                ])),
+              ]),
+              const SizedBox(height: 16),
+              CupertinoTextField(controller: _name, placeholder: 'اسم المصدر', padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13)),
+              const SizedBox(height: 10),
+              Directionality(textDirection: TextDirection.ltr, child: CupertinoTextField(controller: _url, placeholder: 'https://example.com/apps.json', keyboardType: TextInputType.url, autocorrect: false, enableSuggestions: false, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13))),
+              const SizedBox(height: 10),
+              CupertinoTextField(controller: _description, placeholder: 'وصف المصدر (اختياري)', minLines: 3, maxLines: 5, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13)),
+              const SizedBox(height: 10),
+              CupertinoTextField(controller: _order, placeholder: 'ترتيب الظهور', keyboardType: TextInputType.number, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13)),
+              const SizedBox(height: 8),
+              SwitchListTile.adaptive(contentPadding: EdgeInsets.zero, title: const Text('ظاهر في مكتبة المصادر', style: TextStyle(fontWeight: FontWeight.w800)), subtitle: const Text('يمكن إخفاؤه مؤقتاً بدون حذفه.'), value: _enabled, onChanged: _busy ? null : (v) => setState(() => _enabled = v)),
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                Container(padding: const EdgeInsets.all(11), decoration: BoxDecoration(color: Colors.red.withValues(alpha: .08), borderRadius: BorderRadius.circular(13)), child: Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 11))),
+              ],
+              const SizedBox(height: 14),
+              NativeIOSButton(title: _busy ? 'جاري الحفظ…' : (widget.source == null ? 'إضافة المصدر' : 'حفظ التعديلات'), systemImage: _busy ? 'hourglass' : 'checkmark.circle.fill', onPressed: _busy ? null : _save, prominent: true, height: 50),
+            ]),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class AdminAppFormScreen extends StatefulWidget {

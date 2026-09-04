@@ -54,6 +54,36 @@ class AdminApp {
       );
 }
 
+class AdminSource {
+  final String id;
+  final String name;
+  final String url;
+  final String description;
+  final String imageUrl;
+  final bool enabled;
+  final int sortOrder;
+
+  const AdminSource({
+    required this.id,
+    required this.name,
+    required this.url,
+    required this.description,
+    required this.imageUrl,
+    required this.enabled,
+    required this.sortOrder,
+  });
+
+  factory AdminSource.fromJson(Map<String, dynamic> j) => AdminSource(
+        id: '${j['id'] ?? ''}',
+        name: '${j['name'] ?? ''}',
+        url: '${j['url'] ?? ''}',
+        description: '${j['description'] ?? ''}',
+        imageUrl: '${j['image_url'] ?? j['imageUrl'] ?? ''}',
+        enabled: j['enabled'] != false,
+        sortOrder: int.tryParse('${j['sort_order'] ?? 0}') ?? 0,
+      );
+}
+
 class AdminDashboardData {
   final int appCount;
   final int bytes;
@@ -74,6 +104,7 @@ class AdminService {
   static final instance = AdminService._();
 
   static const _base = 'https://scrptaty.com/apps/alsaray/admin_api.php';
+  static const _sourcesBase = 'https://scrptaty.com/pannel/source_library.php';
   static const _channel = MethodChannel('sign/admin_secure');
   static const _deviceIdKey = 'alsaray_admin_device_id_v1';
 
@@ -278,6 +309,83 @@ class AdminService {
     // disappears without waiting for the next scheduled network sync.
     deletedAppId.value = null;
     deletedAppId.value = id;
+  }
+
+  Future<List<AdminSource>> sourceCatalog() async {
+    final r = await _sourceJson('admin_list', method: 'GET');
+    final raw = r['sources'] is List ? r['sources'] as List : const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => AdminSource.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+  Future<AdminSource> saveSource({
+    String id = '',
+    required String name,
+    required String url,
+    String description = '',
+    bool enabled = true,
+    int sortOrder = 0,
+    String? imagePath,
+  }) async {
+    String imageBase64 = '';
+    String imageName = '';
+    if (imagePath?.isNotEmpty == true) {
+      final file = File(imagePath!);
+      if (await file.exists()) {
+        final bytes = await file.readAsBytes();
+        if (bytes.length > 6 * 1024 * 1024) {
+          throw Exception('صورة المصدر أكبر من 6 MB.');
+        }
+        imageBase64 = base64Encode(bytes);
+        imageName = imagePath.split(Platform.pathSeparator).last;
+      }
+    }
+    final r = await _sourceJson('save', method: 'POST', body: {
+      'id': id,
+      'name': name,
+      'url': url,
+      'description': description,
+      'enabled': enabled ? '1' : '0',
+      'sort_order': '$sortOrder',
+      if (imageBase64.isNotEmpty) 'image_base64': imageBase64,
+      if (imageName.isNotEmpty) 'image_name': imageName,
+    });
+    if (r['source'] is! Map) throw Exception('تعذر قراءة بيانات المصدر بعد الحفظ.');
+    return AdminSource.fromJson(Map<String, dynamic>.from(r['source'] as Map));
+  }
+
+  Future<void> deleteSource(String id) async {
+    await _sourceJson('delete', method: 'POST', body: {'id': id});
+  }
+
+  Future<Map<String, dynamic>> _sourceJson(
+    String action, {
+    required String method,
+    Map<String, dynamic>? body,
+  }) async {
+    final uri = Uri.parse(_sourcesBase).replace(queryParameters: {'action': action});
+    final req = method == 'GET' ? await _http.getUrl(uri) : await _http.postUrl(uri);
+    req.headers.set(HttpHeaders.acceptHeader, 'application/json');
+    _attachAuth(req);
+    if (method != 'GET') {
+      req.headers.contentType = ContentType.json;
+      req.write(jsonEncode(body ?? const {}));
+    }
+    final resp = await req.close();
+    final text = await utf8.decoder.bind(resp).join();
+    Map<String, dynamic> data;
+    try {
+      data = Map<String, dynamic>.from(jsonDecode(text) as Map);
+    } catch (_) {
+      throw Exception('رد خادم المصادر غير صالح (${resp.statusCode}).');
+    }
+    if (resp.statusCode == 401) _accessToken = null;
+    if (resp.statusCode < 200 || resp.statusCode >= 300 || data['ok'] != true) {
+      throw Exception('${data['error'] ?? data['message'] ?? 'فشل طلب المصادر (${resp.statusCode})'}');
+    }
+    return data;
   }
 
   void lock() => _accessToken = null;
