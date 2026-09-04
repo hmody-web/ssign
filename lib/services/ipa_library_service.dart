@@ -722,7 +722,7 @@ class IpaLibraryService {
   }
 
   Future<dynamic> _nsignRequest(Uri uri) async {
-    final response = await _jsonGet(uri);
+    final response = await _nsignGet(uri);
     final body = await utf8.decoder.bind(response).join();
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException(
@@ -1452,7 +1452,7 @@ class IpaLibraryService {
     final uri = Uri.parse(_nsignDownloadApi).replace(
       queryParameters: <String, String>{'id': sourceId},
     );
-    final response = await _jsonGet(uri);
+    final response = await _nsignGet(uri);
     final body = await utf8.decoder.bind(response).join();
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException(
@@ -1743,6 +1743,26 @@ class IpaLibraryService {
         } catch (_) {}
       }
     }
+  }
+
+  Future<HttpClientResponse> _nsignGet(Uri uri) async {
+    final request = await _client.getUrl(uri);
+    request.followRedirects = true;
+    request.maxRedirects = 8;
+
+    // Match the request profile used by the original NSign app.
+    request.headers.set(HttpHeaders.acceptHeader, '*/*');
+    request.headers.set(HttpHeaders.acceptLanguageHeader, 'ar');
+    request.headers.set(
+      HttpHeaders.userAgentHeader,
+      'nightscript/1 CFNetwork/3860.700.1 Darwin/25.6.0',
+    );
+    request.headers.set(
+      HttpHeaders.refererHeader,
+      'https://night-script.top',
+    );
+
+    return request.close();
   }
 
   Future<HttpClientResponse> _jsonGet(Uri uri) async {
