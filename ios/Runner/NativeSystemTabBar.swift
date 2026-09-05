@@ -160,6 +160,7 @@ fileprivate final class NativeSystemTabBarView: NSObject, FlutterPlatformView, U
         let params = args as? [String: Any]
         let isArabic = params?["isArabic"] as? Bool ?? true
         let selectedIndex = params?["selectedIndex"] as? Int ?? 0
+        let compact = params?["compact"] as? Bool ?? false
 
         rootView.semanticContentAttribute = isArabic ? .forceRightToLeft : .forceLeftToRight
         tabBar.semanticContentAttribute = isArabic ? .forceRightToLeft : .forceLeftToRight
@@ -191,6 +192,8 @@ fileprivate final class NativeSystemTabBarView: NSObject, FlutterPlatformView, U
 
         rootView.addSubview(tabBar)
         setSelectedIndex(selectedIndex)
+        tabBar.transform = compact ? CGAffineTransform(scaleX: 0.90, y: 0.90) : .identity
+        tabBar.alpha = compact ? 0.94 : 1.0
         NativeSystemTabBarPlugin.activeView = self
     }
 
@@ -776,12 +779,12 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
 
         let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
         blur.translatesAutoresizingMaskIntoConstraints = false
-        blur.alpha = 0.24
+        blur.alpha = 0.50
         blur.isUserInteractionEnabled = false
         root.addSubview(blur)
         let shade = UIView()
         shade.translatesAutoresizingMaskIntoConstraints = false
-        shade.backgroundColor = UIColor.black.withAlphaComponent(0.18)
+        shade.backgroundColor = UIColor.black.withAlphaComponent(0.12)
         shade.isUserInteractionEnabled = false
         root.addSubview(shade)
 
@@ -815,6 +818,12 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
         if #available(iOS 26.0, *) { vc = .glass() } else { vc = .tinted() }
         vc.title = ((app["version"] as? String)?.isEmpty == false) ? "v\(app["version"] as? String ?? "")" : (isArabic ? "جديد" : "New")
         vc.cornerStyle = .capsule
+        vc.contentInsets = NSDirectionalEdgeInsets(top: 3, leading: 8, bottom: 3, trailing: 8)
+        vc.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = UIFont.systemFont(ofSize: 10, weight: .semibold)
+            return outgoing
+        }
         version.configuration = vc
         version.tintColor = .white
         version.isUserInteractionEnabled = false
@@ -828,21 +837,21 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
             icon.widthAnchor.constraint(equalToConstant: 62), icon.heightAnchor.constraint(equalToConstant: 62),
             title.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor, multiplier: 0.53),
             subtitle.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor, multiplier: 0.60),
-            version.heightAnchor.constraint(greaterThanOrEqualToConstant: 34)
+            version.heightAnchor.constraint(greaterThanOrEqualToConstant: 24)
         ])
         if isArabic {
             NSLayoutConstraint.activate([
                 icon.rightAnchor.constraint(equalTo: root.rightAnchor, constant: -20), icon.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
                 title.rightAnchor.constraint(equalTo: icon.leftAnchor, constant: -14), title.leftAnchor.constraint(greaterThanOrEqualTo: root.leftAnchor, constant: 20), title.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
                 subtitle.rightAnchor.constraint(equalTo: icon.leftAnchor, constant: -14), subtitle.leftAnchor.constraint(greaterThanOrEqualTo: root.leftAnchor, constant: 20), subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 8),
-                version.rightAnchor.constraint(equalTo: icon.leftAnchor, constant: -14), version.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 14)
+                version.rightAnchor.constraint(equalTo: icon.leftAnchor, constant: -14), version.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -18)
             ])
         } else {
             NSLayoutConstraint.activate([
                 icon.leftAnchor.constraint(equalTo: root.leftAnchor, constant: 20), icon.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
                 title.leftAnchor.constraint(equalTo: icon.rightAnchor, constant: 14), title.rightAnchor.constraint(lessThanOrEqualTo: root.rightAnchor, constant: -20), title.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
                 subtitle.leftAnchor.constraint(equalTo: icon.rightAnchor, constant: 14), subtitle.rightAnchor.constraint(lessThanOrEqualTo: root.rightAnchor, constant: -20), subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 8),
-                version.leftAnchor.constraint(equalTo: icon.rightAnchor, constant: 14), version.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 14)
+                version.leftAnchor.constraint(equalTo: icon.rightAnchor, constant: 14), version.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -18)
             ])
         }
 

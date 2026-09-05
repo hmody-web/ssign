@@ -30,15 +30,17 @@ class _FilesSystemCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final theme = Theme.of(context);
+    final onSurface = theme.colorScheme.onSurface;
     return RepaintBoundary(
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: dark ? Colors.black : Theme.of(context).colorScheme.surface,
+          // Match the app rows: the card belongs to the page background and is
+          // separated only by a fine divider instead of a heavy black tile.
+          color: theme.scaffoldBackgroundColor,
           borderRadius: BorderRadius.circular(radius),
           border: Border(
-            bottom: BorderSide(color: onSurface.withValues(alpha: .10), width: .55),
+            bottom: BorderSide(color: onSurface.withValues(alpha: .095), width: .55),
           ),
         ),
         child: Padding(padding: padding, child: child),
@@ -673,14 +675,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     if (i < active.length) {
                       final entry = active[i];
                       return Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
+                        padding: EdgeInsets.zero,
                         child: _downloadingAppCard(context, entry.key, entry.value),
                       );
                     }
 
                     final f = store.importedFiles.reversed.toList()[i - active.length];
                     return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
+                      padding: EdgeInsets.zero,
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onLongPress: () => _toggleSelection(f),
@@ -712,7 +714,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 CupertinoButton.tinted(
                                   onPressed: () => _showFileActions(f),
                                   padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
-                                  child: Text(tr('التفاصيل', 'Details'), style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w800)),
+                                  child: Text(
+                                    tr('التفاصيل', 'Details'),
+                                    style: TextStyle(
+                                      color: Theme.of(context).brightness == Brightness.dark
+                                          ? CupertinoColors.white
+                                          : Theme.of(context).colorScheme.primary,
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
                                 ),
                             ],
                           ),

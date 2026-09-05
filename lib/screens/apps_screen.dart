@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -73,10 +74,11 @@ class AppsScreen extends StatefulWidget {
 
 class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMixin {
   static const _nativeAppSheetChannel = MethodChannel('booma/native_app_sheet_channel');
-  static const _pageSize = 60;
+  static const _pageSize = 40;
   static const _cacheKey = 'ipa.library.cache.v3.merged';
   static const _cacheSyncKey = 'ipa.library.cache.synced.v3.merged';
   static const _syncEvery = Duration(minutes: 5);
+  static double _savedMainScrollOffset = 0;
 
   final _service = IpaLibraryService();
   final _downloads = AppDownloadManager.instance;
@@ -88,6 +90,8 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   List<RemoteApp>? _searchResults;
   List<RemoteApp>? _sourceResults;
   List<RemoteApp> _customBanners = const <RemoteApp>[];
+  final Map<String, RemoteApp> _nativeRelatedApps = <String, RemoteApp>{};
+  bool _restoredScroll = false;
 
   Timer? _syncTimer;
   Timer? _searchDebounce;
@@ -167,15 +171,34 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
       source = merged.values.toList();
     }
 
-    source.sort((a, b) {
+    // The main catalogue is kept sorted when data is inserted, so avoid
+    // re-sorting thousands of rows during ordinary scrolling/rebuilds.
+    if (selectedSource != null || term.isNotEmpty) {
+      _sortNewest(source);
+    }
+    final category = _selectedRawCategory?.trim().toLowerCase();
+    if (category == null || category.isEmpty) return source;
+    return source.where((app) => app.category.trim().toLowerCase() == category).toList();
+  }
+
+  void _sortNewest(List<RemoteApp> items) {
+    items.sort((a, b) {
       final ad = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
       final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
       final byDate = bd.compareTo(ad);
       return byDate != 0 ? byDate : b.id.compareTo(a.id);
     });
-    final category = _selectedRawCategory?.trim().toLowerCase();
-    if (category == null || category.isEmpty) return source;
-    return source.where((app) => app.category.trim().toLowerCase() == category).toList();
+  }
+
+  void _restoreScrollWhenReady() {
+    if (_restoredScroll || _savedMainScrollOffset <= 1) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients || _restoredScroll) return;
+      final max = _scrollController.position.maxScrollExtent;
+      if (max <= 0) return;
+      _restoredScroll = true;
+      _scrollController.jumpTo(_savedMainScrollOffset.clamp(0.0, max).toDouble());
+    });
   }
 
   List<String> get _categories {
@@ -215,6 +238,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     if (Platform.isIOS) _nativeAppSheetChannel.setMethodCallHandler(_handleNativeSheetAction);
     AdminService.instance.deletedAppId.addListener(_onAdminDeletedApp);
     _restoreThenLoad();
+    _restoreScrollWhenReady();
     unawaited(_loadCustomBanners());
     _syncTimer = Timer.periodic(_syncEvery, (_) => _syncIncrementally());
   }
@@ -229,6 +253,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     _downloads.removeListener(_syncOpenNativeSheet);
     _store.removeListener(_syncOpenNativeSheet);
     _sources.removeListener(_onSourcesChanged);
+    if (_scrollController.hasClients) _savedMainScrollOffset = _scrollController.offset;
     _scrollController.dispose();
     _service.close();
     super.dispose();
@@ -276,6 +301,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
         sourceId: sourceId,
       ).timeout(const Duration(seconds: 14));
       if (!mounted || generation != _searchGeneration || sourceId != _selectedSourceId) return;
+      _sortNewest(items);
       setState(() {
         _sourceResults = items;
         _hasMore = items.length == _pageSize;
@@ -321,9 +347,11 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
             _apps
               ..clear()
               ..addAll(list);
+            _sortNewest(_apps);
             _hasMore = list.length >= _pageSize;
           });
         }
+        _restoreScrollWhenReady();
       } catch (_) {}
     }
 
@@ -346,7 +374,9 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   }
 
   void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 500) {
+    if (!_scrollController.hasClients) return;
+    _savedMainScrollOffset = _scrollController.offset;
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 420) {
       _loadMore();
     }
   }
@@ -371,8 +401,10 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
         _apps
           ..clear()
           ..addAll(items);
+        _sortNewest(_apps);
         _hasMore = items.length == _pageSize;
       });
+      _restoreScrollWhenReady();
       await _saveCache();
     } catch (e) {
       if (!mounted || generation != _searchGeneration) return;
@@ -413,7 +445,10 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
       _apps.removeWhere((app) => app.id.startsWith('alsaray:') && !freshIds.contains(app.id));
       if (_apps.length != beforeRemoval) changed = true;
 
-      if (changed) setState(() {});
+      if (changed) {
+        _sortNewest(_apps);
+        setState(() {});
+      }
       _hasMore = fresh.length >= limit;
       await _saveCache();
     } catch (_) {
@@ -453,6 +488,13 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
           final ids = results.map((e) => e.id).toSet();
           results.addAll(items.where((e) => ids.add(e.id)));
           _searchResults = results;
+        }
+        if (sourceId != null) {
+          if (_sourceResults != null) _sortNewest(_sourceResults!);
+        } else if (term.isEmpty) {
+          _sortNewest(_apps);
+        } else if (_searchResults != null) {
+          _sortNewest(_searchResults!);
         }
         _hasMore = items.length == _pageSize;
       });
@@ -499,6 +541,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
         sourceId: sourceId,
       );
       if (!mounted || generation != _searchGeneration) return;
+      _sortNewest(items);
       setState(() {
         if (sourceId != null) {
           _sourceResults = items;
@@ -581,9 +624,11 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     }
     else if (action == 'open_related') {
       final relatedId = '${args['value'] ?? ''}';
-      RemoteApp? related;
-      for (final candidate in <RemoteApp>[..._apps, ...?_sourceResults, ...?_searchResults]) {
-        if (candidate.id == relatedId) { related = candidate; break; }
+      RemoteApp? related = _nativeRelatedApps[relatedId];
+      if (related == null) {
+        for (final candidate in <RemoteApp>[..._apps, ...?_sourceResults, ...?_searchResults]) {
+          if (candidate.id == relatedId) { related = candidate; break; }
+        }
       }
       if (related != null) {
         await _nativeAppSheetChannel.invokeMethod<void>('dismissAppSheet');
@@ -629,6 +674,9 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
       });
     final similarForNative = similar.isNotEmpty ? similar : recommendedPool.take(6).toList();
     final recommendedForNative = recommendedPool.take(10).toList();
+    _nativeRelatedApps
+      ..clear()
+      ..addEntries(<RemoteApp>[...similarForNative, ...recommendedForNative, app].map((item) => MapEntry(item.id, item)));
     final appMap = <String, dynamic>{
       'id': app.id, 'name': app.name, 'displayName': app.displayName(_store.isArabic),
       'displaySubtitle': app.displaySubtitle(_store.isArabic), 'iconUrl': app.iconUrl,
@@ -734,7 +782,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
       child: CustomScrollView(
         key: const PageStorageKey('apps-scroll-view'),
         controller: _scrollController,
-        cacheExtent: 420,
+        cacheExtent: 220,
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
         slivers: [
@@ -793,20 +841,12 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
                       const SizedBox(height: 16),
                     ],
                     if (_filterValues.isNotEmpty)
-                      Platform.isIOS
-                          ? NativeIOSCategories(
-                              values: _filterValues,
-                              labels: _filterValues.map((e) => _filterDisplay(e, isArabic)).toList(),
-                              selected: _selectedCategory,
-                              isArabic: isArabic,
-                              onChanged: _onFilterChanged,
-                            )
-                          : _CategoryShelf(
-                              categories: _filterValues,
-                              isArabic: isArabic,
-                              selected: _selectedCategory,
-                              onChanged: _onFilterChanged,
-                            ),
+                      _CategoryShelf(
+                        categories: _filterValues,
+                        isArabic: isArabic,
+                        selected: _selectedCategory,
+                        onChanged: _onFilterChanged,
+                      ),
                     const SizedBox(height: 22),
                     _AppsSectionDivider(title: tr('التطبيقات', 'Apps')),
                     const SizedBox(height: 12),
@@ -900,7 +940,7 @@ class _CategoryShelf extends StatelessWidget {
 
   IconData _iconFor(String category) {
     final c = category.toLowerCase();
-    if (c.startsWith('@source:')) return CupertinoIcons.tray_full_fill;
+    if (c.startsWith('@source:')) return CupertinoIcons.square_stack_3d_up_fill;
     if (c.contains('game') || c.contains('لعب')) return CupertinoIcons.game_controller_solid;
     if (c.contains('social') || c.contains('تواصل')) return CupertinoIcons.person_2_fill;
     if (c.contains('photo') || c.contains('صور')) return CupertinoIcons.camera_fill;
@@ -927,14 +967,9 @@ class _CategoryShelf extends StatelessWidget {
     if (c.contains('developer') || c.contains('مطور')) return Icons.code_rounded;
     if (c.contains('design') || c.contains('graphics') || c.contains('تصميم')) return Icons.palette_rounded;
     const fallback = <IconData>[
-      Icons.view_in_ar_rounded,
-      Icons.layers_rounded,
-      CupertinoIcons.star_fill,
-      CupertinoIcons.compass_fill,
-      CupertinoIcons.bolt_fill,
-      Icons.apps_rounded,
-      Icons.rocket_launch_rounded,
-      CupertinoIcons.app_fill,
+      Icons.view_in_ar_rounded, Icons.layers_rounded, CupertinoIcons.star_fill,
+      CupertinoIcons.compass_fill, CupertinoIcons.bolt_fill, Icons.apps_rounded,
+      Icons.rocket_launch_rounded, CupertinoIcons.app_fill,
     ];
     final hash = c.codeUnits.fold<int>(0, (v, e) => (v * 31 + e) & 0x7fffffff);
     return fallback[hash % fallback.length];
@@ -942,65 +977,87 @@ class _CategoryShelf extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
+    final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
+    final onSurface = theme.colorScheme.onSurface;
     final allSelected = selected == null || selected!.isEmpty;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface.withValues(alpha: .72),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Theme.of(context).dividerColor),
-        boxShadow: [
-          BoxShadow(
-            blurRadius: 24,
-            offset: const Offset(0, 10),
-            color: Colors.black.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? .18 : .06),
-          ),
-        ],
-      ),
+    final dark = theme.brightness == Brightness.dark;
+
+    String labelFor(String raw) {
+      if (raw.startsWith('@source:')) {
+        return LibrarySourcesStore.instance.byId(raw.substring('@source:'.length))?.name ?? raw.substring('@source:'.length);
+      }
+      return _categoryDisplay(raw.startsWith('@category:') ? raw.substring('@category:'.length) : raw, isArabic);
+    }
+
+    return Directionality(
+      textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
       child: SizedBox(
-        height: 84,
+        height: 80,
         child: ListView.separated(
+          key: const PageStorageKey('booma-category-shelf'),
           scrollDirection: Axis.horizontal,
-          physics: const BouncingScrollPhysics(),
+          physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+          padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 4),
           itemCount: categories.length + 1,
           separatorBuilder: (_, __) => const SizedBox(width: 9),
           itemBuilder: (context, index) {
             final isAll = index == 0;
-            final rawCategory = isAll ? '' : categories[index - 1];
-            final category = isAll
-                ? tr('الكل', 'All')
-                : rawCategory.startsWith('@source:')
-                    ? (LibrarySourcesStore.instance
-                            .byId(rawCategory.substring('@source:'.length))
-                            ?.name ??
-                        rawCategory.substring('@source:'.length))
-                    : _categoryDisplay(
-                        rawCategory.startsWith('@category:')
-                            ? rawCategory.substring('@category:'.length)
-                            : rawCategory,
-                        isArabic,
-                      );
-            final active = isAll ? allSelected : selected == rawCategory;
-            return GestureDetector(
-              onTap: () => onChanged(isAll ? null : rawCategory),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeOutCubic,
-                width: 82,
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 8),
-                decoration: BoxDecoration(
-                  color: active ? primary.withValues(alpha: .16) : Theme.of(context).colorScheme.onSurface.withValues(alpha: .045),
-                  borderRadius: BorderRadius.circular(19),
-                  border: Border.all(color: active ? primary.withValues(alpha: .38) : Theme.of(context).dividerColor),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(isAll ? CupertinoIcons.square_grid_2x2_fill : _iconFor(rawCategory), size: 23, color: active ? primary : Theme.of(context).colorScheme.onSurface.withValues(alpha: .58)),
-                    const SizedBox(height: 7),
-                    Text(category, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: TextStyle(fontSize: 10.5, fontWeight: active ? FontWeight.w800 : FontWeight.w600, color: active ? primary : Theme.of(context).colorScheme.onSurface.withValues(alpha: .72))),
-                  ],
+            final raw = isAll ? '' : categories[index - 1];
+            final active = isAll ? allSelected : selected == raw;
+            final icon = isAll ? CupertinoIcons.square_grid_2x2_fill : _iconFor(raw);
+            final label = isAll ? tr('الكل', 'All') : labelFor(raw);
+            final accent = active ? primary : onSurface.withValues(alpha: dark ? .76 : .68);
+            final base = Color.alphaBlend(
+              (active ? primary : onSurface).withValues(alpha: active ? (dark ? .13 : .09) : (dark ? .045 : .035)),
+              theme.scaffoldBackgroundColor,
+            );
+            return Semantics(
+              button: true,
+              selected: active,
+              label: label,
+              child: GestureDetector(
+                onTap: () => onChanged(isAll ? null : raw),
+                child: AnimatedScale(
+                  scale: active ? 1.0 : .965,
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    width: isAll ? 92 : 108,
+                    padding: const EdgeInsetsDirectional.fromSTEB(10, 8, 11, 8),
+                    decoration: BoxDecoration(
+                      color: base,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: active ? primary.withValues(alpha: .34) : onSurface.withValues(alpha: .075), width: .7),
+                      boxShadow: active ? [BoxShadow(color: primary.withValues(alpha: .12), blurRadius: 16, offset: const Offset(0, 6))] : const [],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: active ? primary.withValues(alpha: .18) : onSurface.withValues(alpha: .055),
+                          ),
+                          child: Icon(icon, size: 17.5, color: accent),
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            label,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.start,
+                            style: TextStyle(fontSize: 11, height: 1.12, fontWeight: active ? FontWeight.w800 : FontWeight.w600, color: accent),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             );
@@ -1137,11 +1194,18 @@ class _FeaturedBannerCardState extends State<_FeaturedBannerCard> {
                 switchInCurve: Curves.easeOutCubic,
                 child: SizedBox.expand(
                   key: ValueKey('${app.id}-$_image'),
-                  child: Image.network(
-                    app.screenshots[_image],
-                    fit: BoxFit.cover,
-                    alignment: Alignment.center,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  child: ImageFiltered(
+                    imageFilter: ui.ImageFilter.blur(sigmaX: 2.0, sigmaY: 2.0),
+                    child: Transform.scale(
+                      scale: 1.015,
+                      child: Image.network(
+                        app.screenshots[_image],
+                        fit: BoxFit.cover,
+                        alignment: Alignment.center,
+                        filterQuality: FilterQuality.low,
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -1183,9 +1247,9 @@ class _FeaturedBannerCardState extends State<_FeaturedBannerCard> {
                       Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                             decoration: BoxDecoration(color: Colors.white.withValues(alpha: .16), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.white.withValues(alpha: .18))),
-                            child: Text(app.version.isEmpty ? tr('جديد', 'New') : 'v${app.version}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
+                            child: Text(app.version.isEmpty ? tr('جديد', 'New') : 'v${app.version}', style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.w800)),
                           ),
                         ],
                       ),
@@ -1447,25 +1511,29 @@ class _DownloadAction extends StatelessWidget {
       );
     }
 
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final buttonBg = dark
+        ? const Color(0xFF111216)
+        : Color.alphaBlend(primary.withValues(alpha: .10), Theme.of(context).colorScheme.surface);
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF08090B),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: primary.withValues(alpha: .18), width: .65),
-        boxShadow: [
+        color: buttonBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: primary.withValues(alpha: dark ? .18 : .24), width: .65),
+        boxShadow: dark ? [
           BoxShadow(
-            color: Colors.black.withValues(alpha: .16),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
+            color: Colors.black.withValues(alpha: .12),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
           ),
-        ],
+        ] : const [],
       ),
       child: CupertinoButton(
         onPressed: onDownload,
         color: Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
-        borderRadius: BorderRadius.circular(18),
-        minSize: 36,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        borderRadius: BorderRadius.circular(16),
+        minSize: 32,
         child: Text(
           tr('تنزيل', 'GET'),
           style: TextStyle(

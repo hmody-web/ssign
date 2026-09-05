@@ -142,6 +142,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         },
       );
 
+  Color _settingsCardColor(BuildContext context) {
+    final theme = Theme.of(context);
+    final onSurface = theme.colorScheme.onSurface;
+    return Color.alphaBlend(
+      onSurface.withValues(alpha: theme.brightness == Brightness.dark ? .055 : .028),
+      theme.scaffoldBackgroundColor,
+    );
+  }
+
   Widget _compactCard(
     BuildContext context, {
     required IconData icon,
@@ -150,24 +159,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     VoidCallback? onTap,
     Widget? trailing,
   }) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
     final divider = Theme.of(context).colorScheme.onSurface.withValues(alpha: .10);
     return Material(
-      color: dark ? Colors.black : Theme.of(context).colorScheme.surface,
-      borderRadius: BorderRadius.circular(17),
+      color: _settingsCardColor(context),
+      borderRadius: BorderRadius.circular(18),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
-          decoration: BoxDecoration(border: Border.all(color: divider, width: .55), borderRadius: BorderRadius.circular(17)),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(border: Border.all(color: divider, width: .55), borderRadius: BorderRadius.circular(18)),
           child: Row(children: [
-            _tileIcon(context, icon, size: 38),
-            const SizedBox(width: 11),
+            _tileIcon(context, icon, size: 42),
+            const SizedBox(width: 12),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5)),
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
               const SizedBox(height: 2),
-              Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48))),
+              Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.3, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48))),
             ])),
             const SizedBox(width: 8),
             trailing ?? Icon(CupertinoIcons.chevron_forward, size: 16, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .33)),
@@ -178,11 +186,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _settingsGroup(BuildContext context, {required List<Widget> children}) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
-        color: dark ? Colors.black : Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(17),
+        color: _settingsCardColor(context),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .10), width: .55),
       ),
       clipBehavior: Clip.antiAlias,
@@ -191,7 +198,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _settingsInfoRow(BuildContext context, IconData icon, String title, String subtitle, {bool last = false}) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10.5),
     decoration: BoxDecoration(border: last ? null : Border(bottom: BorderSide(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .09), width: .55))),
     child: Row(children: [
       Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
@@ -886,33 +893,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
 
   Widget _developerCard(BuildContext context) {
-    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: .58);
+    final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: .52);
+    final divider = Theme.of(context).colorScheme.onSurface.withValues(alpha: .10);
     return Material(
-      color: Colors.transparent,
+      color: _settingsCardColor(context),
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: BorderRadius.circular(17),
         onTap: () => _openDeveloperSite(context),
-        child: GlassCard(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            border: Border.all(color: divider, width: .55),
+            borderRadius: BorderRadius.circular(18),
+          ),
           child: Directionality(
             textDirection: TextDirection.rtl,
             child: Row(children: [
               Container(
-                width: 52,
-                height: 52,
+                width: 42,
+                height: 42,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(80),
-                  border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: .28)),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: .22)),
                   image: const DecorationImage(image: AssetImage('assets/images/avatar.png'), fit: BoxFit.cover),
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(tr('محمد السراي', 'Mohammed Al-Saray'), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 4),
-                Text(tr('مبرمج ومطور تطبيقات ومواقع ويب', 'Software, app and web developer'), style: TextStyle(color: muted, fontSize: 12.5, height: 1.45)),
+                Text(tr('محمد السراي', 'Mohammed Al-Saray'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 2),
+                Text(tr('مبرمج ومطور تطبيقات ومواقع ويب', 'Software, app and web developer'), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: muted, fontSize: 11.3)),
               ])),
               const SizedBox(width: 8),
-              Icon(CupertinoIcons.arrow_up_left_square, size: 19, color: Theme.of(context).colorScheme.primary),
+              Icon(CupertinoIcons.chevron_forward, size: 16, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .33)),
             ]),
           ),
         ),
