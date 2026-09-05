@@ -29,6 +29,7 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     case "shareFile": share(args, result: result)
     case "saveImageToPhotos": saveImageToPhotos(args, result: result)
     case "installIpa": install(args, result: result)
+    case "installRemoteIpa": installRemote(args, result: result)
     case "installDownloadStarted": result(installServer.hasStartedDownload)
     case "installDownloadFinished": result(installServer.hasFinishedDownload)
     case "savePassword": savePassword(args,result:result)
@@ -562,6 +563,42 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     let q:[String:Any]=[kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:keychainService,kSecAttrAccount as String:id]
     let status=SecItemDelete(q as CFDictionary)
     (status==errSecSuccess || status==errSecItemNotFound) ? result(nil) : result(FlutterError(code:"KEYCHAIN_DELETE",message:"Keychain error \(status)",details:nil))
+  }
+
+  private func installRemote(_ args: [String: Any], result: @escaping FlutterResult) {
+    guard let rawURL = args["url"] as? String,
+          let remoteURL = URL(string: rawURL),
+          remoteURL.scheme?.lowercased() == "https" else {
+      result(FlutterError(code: "BAD_REMOTE_URL", message: "A valid HTTPS IPA URL is required", details: nil))
+      return
+    }
+    let bundle = (args["bundleId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "com.sbooma.sign"
+    let title = (args["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Booma"
+    let version = (args["version"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "1.0"
+    DispatchQueue.main.async {
+      do {
+        _ = try self.installServer.startRedirect(to: remoteURL)
+        var c = URLComponents(string: "https://api.palera.in/genPlist")!
+        c.queryItems = [
+          URLQueryItem(name: "bundleid", value: bundle.isEmpty ? "com.sbooma.sign" : bundle),
+          URLQueryItem(name: "name", value: title.isEmpty ? "Booma" : title),
+          URLQueryItem(name: "version", value: version.isEmpty ? "1.0" : version),
+          URLQueryItem(name: "fetchurl", value: self.installServer.ipaHTTPURL),
+        ]
+        guard let manifestURL = c.url else { throw NSError(domain: "Sign", code: 20, userInfo: [NSLocalizedDescriptionKey: "Could not create update manifest URL"]) }
+        var installComponents = URLComponents()
+        installComponents.scheme = "itms-services"
+        installComponents.host = ""
+        installComponents.queryItems = [
+          URLQueryItem(name: "action", value: "download-manifest"),
+          URLQueryItem(name: "url", value: manifestURL.absoluteString),
+        ]
+        guard let itms = installComponents.url else { throw NSError(domain: "Sign", code: 21, userInfo: [NSLocalizedDescriptionKey: "Could not create OTA update URL"]) }
+        UIApplication.shared.open(itms, options: [:]) { opened in result(opened) }
+      } catch {
+        result(FlutterError(code: "REMOTE_INSTALL_FAILED", message: error.localizedDescription, details: nil))
+      }
+    }
   }
 
   private func install(_ args:[String:Any], result:@escaping FlutterResult) {

@@ -8,6 +8,7 @@ final class LocalInstallServer {
   private var listener: Int32 = -1
   private(set) var port: UInt16 = 0
   private var ipaURL: URL?
+  private var redirectURL: URL?
   private var running = false
   private let stateLock = NSLock()
   private var downloadStarted = false
@@ -22,6 +23,47 @@ final class LocalInstallServer {
     downloadFinished = false
     stateLock.unlock()
     ipaURL = ipa
+    redirectURL = nil
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    guard fd >= 0 else { throw posix("socket") }
+    var one: Int32 = 1
+    _ = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, socklen_t(MemoryLayout<Int32>.size))
+    _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+
+    var address = sockaddr_in()
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_port = 0
+    address.sin_addr.s_addr = inet_addr("127.0.0.1")
+    let bound = withUnsafePointer(to: &address) { p in
+      p.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+    }
+    guard bound == 0 else { close(fd); throw posix("bind") }
+    guard listen(fd, 8) == 0 else { close(fd); throw posix("listen") }
+
+    var actual = sockaddr_in(); var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+    let named = withUnsafeMutablePointer(to: &actual) { p in
+      p.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &len) }
+    }
+    guard named == 0 else { close(fd); throw posix("getsockname") }
+    port = UInt16(bigEndian: actual.sin_port)
+    listener = fd; running = true
+    queue.async { [weak self] in self?.acceptLoop(fd) }
+    return port
+  }
+
+
+  /// Starts the loopback endpoint only as a confirmation detector. Once iOS
+  /// confirms Install and requests /app.ipa, the request is redirected to the
+  /// permanent HTTPS IPA URL. This lets Booma terminate without interrupting
+  /// the OTA transfer.
+  func startRedirect(to remoteURL: URL) throws -> UInt16 {
+    stop()
+    stateLock.lock()
+    downloadStarted = false
+    downloadFinished = false
+    stateLock.unlock()
+    ipaURL = nil
+    redirectURL = remoteURL
     let fd = socket(AF_INET, SOCK_STREAM, 0)
     guard fd >= 0 else { throw posix("socket") }
     var one: Int32 = 1
@@ -86,7 +128,7 @@ final class LocalInstallServer {
     }
     guard let request = String(data: data, encoding: .utf8), let first = request.components(separatedBy: "\r\n").first else { return }
     let parts = first.split(separator: " ")
-    guard parts.count >= 2, (parts[0] == "GET" || parts[0] == "HEAD"), parts[1].split(separator:"?").first == "/app.ipa", let file = ipaURL else {
+    guard parts.count >= 2, (parts[0] == "GET" || parts[0] == "HEAD"), parts[1].split(separator:"?").first == "/app.ipa" else {
       sendHeader(fd, status:"404 Not Found", length:0, contentRange:nil); return
     }
     let headOnly = parts[0] == "HEAD"
@@ -94,6 +136,13 @@ final class LocalInstallServer {
       stateLock.lock()
       downloadStarted = true
       stateLock.unlock()
+    }
+    if let remote = redirectURL {
+      sendRedirect(fd, to: remote.absoluteString)
+      return
+    }
+    guard let file = ipaURL else {
+      sendHeader(fd, status:"404 Not Found", length:0, contentRange:nil); return
     }
     let attrs = try? FileManager.default.attributesOfItem(atPath:file.path)
     let size = (attrs?[.size] as? NSNumber)?.uint64Value ?? 0
@@ -121,6 +170,11 @@ final class LocalInstallServer {
       downloadFinished = true
       stateLock.unlock()
     }
+  }
+
+  private func sendRedirect(_ fd: Int32, to location: String) {
+    let header = "HTTP/1.1 302 Found\r\nLocation: \(location)\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+    _ = sendAll(fd, Data(header.utf8))
   }
 
   private func sendHeader(_ fd:Int32,status:String,length:UInt64,contentRange:String?) {

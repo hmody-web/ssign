@@ -167,6 +167,24 @@ class SigningService {
     }
   }
 
+  Future<bool> installRemoteUpdate({
+    required String url,
+    required String version,
+    String bundleId = 'com.sbooma.sign',
+    String name = 'Booma',
+  }) async {
+    try {
+      return (await _channel.invokeMethod<bool>('installRemoteIpa', <String, dynamic>{
+        'url': url,
+        'version': version,
+        'bundleId': bundleId,
+        'name': name,
+      })) ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   Future<bool> installDownloadStarted() async {
     try {
       return (await _channel.invokeMethod<bool>('installDownloadStarted', const <String, dynamic>{})) ?? false;

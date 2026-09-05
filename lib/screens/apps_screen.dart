@@ -603,10 +603,32 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     final args = Map<String, dynamic>.from(call.arguments as Map);
     final id = args['id']?.toString() ?? '';
     final action = args['action']?.toString() ?? '';
+
+    // Related cards must work even when the currently opened app came from a
+    // temporary/search source that is no longer present in the visible list.
+    if (action == 'open_related') {
+      final relatedId = '${args['value'] ?? ''}';
+      RemoteApp? related = _nativeRelatedApps[relatedId];
+      if (related == null) {
+        for (final candidate in <RemoteApp>[..._apps, ...?_sourceResults, ...?_searchResults]) {
+          if (candidate.id == relatedId) { related = candidate; break; }
+        }
+      }
+      if (related != null) {
+        _openNativeAppId = null;
+        final target = related;
+        Future<void>.delayed(const Duration(milliseconds: 260), () {
+          if (mounted) _openDetails(target);
+        });
+      }
+      return null;
+    }
+
     RemoteApp? app;
     for (final candidate in <RemoteApp>[..._apps, ...?_sourceResults, ...?_searchResults]) {
       if (candidate.id == id) { app = candidate; break; }
     }
+    app ??= _nativeRelatedApps[id];
     if (app == null) return null;
     final selectedApp = app;
     final state = _downloads.stateFor(selectedApp);
@@ -621,22 +643,6 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
       }
       await _store.setAutoSignAfterDownload(next);
       _syncOpenNativeSheet();
-    }
-    else if (action == 'open_related') {
-      final relatedId = '${args['value'] ?? ''}';
-      RemoteApp? related = _nativeRelatedApps[relatedId];
-      if (related == null) {
-        for (final candidate in <RemoteApp>[..._apps, ...?_sourceResults, ...?_searchResults]) {
-          if (candidate.id == relatedId) { related = candidate; break; }
-        }
-      }
-      if (related != null) {
-        await _nativeAppSheetChannel.invokeMethod<void>('dismissAppSheet');
-        final target = related;
-        Future<void>.delayed(const Duration(milliseconds: 320), () {
-          if (mounted) _openDetails(target);
-        });
-      }
     }
     return null;
   }

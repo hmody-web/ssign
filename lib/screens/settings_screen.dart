@@ -110,32 +110,34 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     if (info == null || !_hasUpdate || _updateBusy) return;
     setState(() { _updateBusy = true; _updateProgress = 0; _updateError = null; });
     try {
-      final file = await BoomaPublicService.instance.downloadUpdate(info.ipaUrl, onProgress: (p) {
+      await BoomaPublicService.instance.downloadUpdate(info.ipaUrl, onProgress: (p) {
         if (mounted) setState(() => _updateProgress = p * .92);
       });
       if (!mounted) return;
       setState(() => _updateProgress = .95);
-      final launched = await SigningService().install(file.path);
+      // The local download above keeps the visible progress exactly as before.
+      // Installation itself uses the permanent HTTPS Booma.ipa URL through a
+      // tiny loopback redirect. That loopback request happens only after the
+      // user taps Install in iOS, so we can detect the confirmation and safely
+      // close Booma two seconds later without cutting the IPA transfer.
+      final launched = await SigningService().installRemoteUpdate(
+        url: info.ipaUrl,
+        version: info.version,
+        bundleId: 'com.sbooma.sign',
+        name: info.appName.isEmpty ? 'Booma' : info.appName,
+      );
       if (!launched) throw Exception(tr('تعذر بدء مثبت التحديث', 'Could not start the update installer'));
       var started = false;
-      for (var i = 0; i < 20; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 450));
+      for (var i = 0; i < 80; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
         started = await SigningService().installDownloadStarted();
         if (started) break;
       }
-      if (!started) throw Exception(tr('لم يبدأ مثبت iOS، حاول مرة أخرى', 'The iOS installer did not start. Try again.'));
+      if (!started) throw Exception(tr('لم يتم تأكيد التثبيت، حاول مرة أخرى', 'Installation was not confirmed. Try again.'));
       if (!mounted) return;
       setState(() { _updateBusy = false; _updateProgress = 1; _updateInstallStarted = true; });
-      showAppNotice(context, tr('بدأ تثبيت التحديث. سيتم إغلاق بومة تلقائياً.', 'Update installation started. Booma will close automatically.'), type: AppNoticeType.success, duration: const Duration(seconds: 2));
-      // A GET for app.ipa starts only after the user confirms Install. Keep the
-      // local OTA server alive until iOS has fully received the IPA, otherwise
-      // terminating Booma early can corrupt/cancel larger updates. Then close
-      // two seconds later.
+      showAppNotice(context, tr('تم تأكيد التثبيت. سيتم إغلاق بومة بعد ثانيتين.', 'Install confirmed. Booma will close in two seconds.'), type: AppNoticeType.success, duration: const Duration(seconds: 2));
       if (Platform.isIOS) {
-        for (var i = 0; i < 240; i++) {
-          await Future<void>.delayed(const Duration(milliseconds: 250));
-          if (await SigningService().installDownloadFinished()) break;
-        }
         await Future<void>.delayed(const Duration(seconds: 2));
         exit(0);
       }

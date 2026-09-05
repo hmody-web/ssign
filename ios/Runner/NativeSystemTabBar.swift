@@ -220,9 +220,17 @@ fileprivate final class NativeSystemTabBarView: NSObject, FlutterPlatformView, U
     }
 
     func setCompact(_ compact: Bool) {
-        UIView.animate(withDuration: 0.28, delay: 0, usingSpringWithDamping: 0.88, initialSpringVelocity: 0.2, options: [.beginFromCurrentState, .allowUserInteraction]) {
-            self.tabBar.transform = compact ? CGAffineTransform(scaleX: 0.88, y: 0.88) : .identity
-            self.tabBar.alpha = compact ? 0.94 : 1.0
+        guard self.tabBar.transform.isIdentity == !compact else { return }
+        let target = compact ? CGAffineTransform(scaleX: 0.88, y: 0.88) : .identity
+        UIView.animate(
+            withDuration: compact ? 0.24 : 0.32,
+            delay: 0,
+            usingSpringWithDamping: compact ? 0.90 : 0.78,
+            initialSpringVelocity: compact ? 0.18 : 0.45,
+            options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut]
+        ) {
+            self.tabBar.transform = target
+            self.tabBar.alpha = compact ? 0.92 : 1.0
         }
     }
 
@@ -1289,7 +1297,10 @@ private struct NativeAppSheetSwiftUIView: View {
             HStack(spacing: 14) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     Button {
-                        action("open_related", item["id"] as? String ?? "")
+                        let relatedId = item["id"] as? String ?? ""
+                        guard !relatedId.isEmpty else { return }
+                        action("open_related", relatedId)
+                        dismiss()
                     } label: {
                         VStack(alignment: .center, spacing: 7) {
                             AsyncImage(url: URL(string: item["iconUrl"] as? String ?? "")) { phase in

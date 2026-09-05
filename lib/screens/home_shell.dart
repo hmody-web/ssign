@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 import '../models/sign_models.dart';
@@ -65,20 +66,21 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   bool _handleScrollNotification(ScrollNotification notification) {
-    if (notification is ScrollUpdateNotification && notification.dragDetails != null) {
+    bool? compact;
+    if (notification is UserScrollNotification) {
+      if (notification.direction == ScrollDirection.reverse) compact = true;
+      if (notification.direction == ScrollDirection.forward) compact = false;
+    } else if (notification is ScrollUpdateNotification && notification.dragDetails != null) {
       final delta = notification.scrollDelta ?? 0;
-      if (delta.abs() > 1.5) {
-        final compact = delta > 0;
-        if (compact != _tabCompact) {
-          _tabCompact = compact;
-          if (Platform.isIOS) {
-            // Keep scrolling buttery-smooth: UIKit animates the tab bar itself,
-            // so there is no reason to rebuild the whole Flutter page here.
-            _nativeTabChannel.invokeMethod<void>('setCompact', compact).catchError((_) {});
-          } else if (mounted) {
-            setState(() {});
-          }
-        }
+      if (delta > 0.8) compact = true;
+      if (delta < -0.8) compact = false;
+    }
+    if (compact != null && compact != _tabCompact) {
+      _tabCompact = compact;
+      if (Platform.isIOS) {
+        _nativeTabChannel.invokeMethod<void>('setCompact', compact).catchError((_) {});
+      } else if (mounted) {
+        setState(() {});
       }
     }
     return false;
@@ -234,11 +236,12 @@ class _SystemBottomBar extends StatelessWidget {
                     end: Alignment.bottomCenter,
                     colors: [
                       base.withValues(alpha: 0),
-                      base.withValues(alpha: .48),
-                      base.withValues(alpha: .92),
+                      base.withValues(alpha: .22),
+                      base.withValues(alpha: .70),
+                      base.withValues(alpha: .96),
                       base,
                     ],
-                    stops: const [0, .44, .78, 1],
+                    stops: const [0, .28, .62, .86, 1],
                   ),
                 ),
               ),
