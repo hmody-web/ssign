@@ -24,31 +24,25 @@ class _FilesSystemCard extends StatelessWidget {
 
   const _FilesSystemCard({
     required this.child,
-    this.padding = const EdgeInsets.all(16),
-    this.radius = 22,
+    this.padding = const EdgeInsets.all(13),
+    this.radius = 16,
   });
 
   @override
   Widget build(BuildContext context) {
-    final surface = CupertinoDynamicColor.resolve(
-      CupertinoColors.secondarySystemGroupedBackground,
-      context,
-    );
-    final separator = CupertinoDynamicColor.resolve(CupertinoColors.separator, context);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: surface.withValues(alpha: 0.94),
-        borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: separator.withValues(alpha: 0.18), width: 0.5),
-        boxShadow: [
-          BoxShadow(
-            color: CupertinoColors.black.withValues(alpha: 0.035),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return RepaintBoundary(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: dark ? Colors.black : Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(radius),
+          border: Border(
+            bottom: BorderSide(color: onSurface.withValues(alpha: .10), width: .55),
           ),
-        ],
+        ),
+        child: Padding(padding: padding, child: child),
       ),
-      child: Padding(padding: padding, child: child),
     );
   }
 }

@@ -178,73 +178,36 @@ class IpaLibraryService {
         ...(all[3] as List<RemoteApp>),
         ...(all[4] as List<RemoteApp>),
         ...(all[5] as List<RemoteApp>),
-      ]);
+      ])..sort((a, b) {
+        final ad = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bd.compareTo(ad);
+      });
       if (safeOffset >= merged.length) return const <RemoteApp>[];
       return merged.skip(safeOffset).take(safeLimit).toList();
     }
 
-    final loaded = await Future.wait<dynamic>(<Future<dynamic>>[
+    final target = safeOffset + safeLimit;
+    final loaded = await Future.wait<List<RemoteApp>>(<Future<List<RemoteApp>>>[
       sources.isEnabled('alsaray') ? safeApps(_fetchAlsarayApps()) : Future<List<RemoteApp>>.value(const <RemoteApp>[]),
       sources.isEnabled('zsign') ? safeApps(_fetchZsignApps()) : Future<List<RemoteApp>>.value(const <RemoteApp>[]),
       loadCustom(),
-      sources.isEnabled('nsign') ? safeCount(_ensureNsignMetadata()) : Future<int>.value(0),
-      sources.isEnabled('appstar') ? safeCount(_ensureAppstarMetadata()) : Future<int>.value(0),
+      sources.isEnabled('nsign') ? safeApps(_fetchNsignSlice(offset: 0, limit: target)) : Future<List<RemoteApp>>.value(const <RemoteApp>[]),
+      sources.isEnabled('appstar') ? safeApps(_fetchAppstarSlice(offset: 0, limit: target)) : Future<List<RemoteApp>>.value(const <RemoteApp>[]),
+      sources.isEnabled('iosboom') ? safeApps(_fetchIosBoomApps(offset: 0, limit: target, search: '')) : Future<List<RemoteApp>>.value(const <RemoteApp>[]),
     ]);
-    final alsarayApps = loaded[0] as List<RemoteApp>;
-    final zsignApps = loaded[1] as List<RemoteApp>;
-    final customApps = loaded[2] as List<RemoteApp>;
-    final nsignCount = loaded[3] as int;
-    final appstarCount = loaded[4] as int;
 
-    final prefixApps = _dedupeApps(<RemoteApp>[...alsarayApps, ...zsignApps, ...customApps]);
-    final prefixCount = prefixApps.length;
-    final nsignStart = prefixCount;
-    final appstarStart = nsignStart + nsignCount;
-    final iosBoomStart = appstarStart + appstarCount;
-    final result = <RemoteApp>[];
-    var cursor = safeOffset;
+    final merged = _dedupeApps(loaded.expand((items) => items))
+      ..sort((a, b) {
+        final ad = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final byDate = bd.compareTo(ad);
+        if (byDate != 0) return byDate;
+        return b.id.compareTo(a.id);
+      });
 
-    if (cursor < prefixCount && result.length < safeLimit) {
-      final take = (safeLimit - result.length).clamp(0, prefixCount - cursor).toInt();
-      result.addAll(prefixApps.skip(cursor).take(take));
-      cursor += take;
-    }
-
-    if (cursor < appstarStart && result.length < safeLimit && nsignCount > 0) {
-      final nsignOffset = (cursor - nsignStart).clamp(0, nsignCount).toInt();
-      final take = (safeLimit - result.length).clamp(0, nsignCount - nsignOffset).toInt();
-      try {
-        final rows = await _fetchNsignSlice(offset: nsignOffset, limit: take);
-        result.addAll(rows);
-        cursor += rows.length;
-        if (rows.length < take) cursor = appstarStart;
-      } catch (_) {
-        cursor = appstarStart;
-      }
-    }
-
-    if (cursor < iosBoomStart && result.length < safeLimit && appstarCount > 0) {
-      final appstarOffset = (cursor - appstarStart).clamp(0, appstarCount).toInt();
-      final take = (safeLimit - result.length).clamp(0, appstarCount - appstarOffset).toInt();
-      try {
-        final rows = await _fetchAppstarSlice(offset: appstarOffset, limit: take);
-        result.addAll(rows);
-        cursor += rows.length;
-        if (rows.length < take) cursor = iosBoomStart;
-      } catch (_) {
-        cursor = iosBoomStart;
-      }
-    }
-
-    final remaining = safeLimit - result.length;
-    if (remaining > 0 && sources.isEnabled('iosboom')) {
-      final iosBoomOffset = cursor <= iosBoomStart ? 0 : cursor - iosBoomStart;
-      try {
-        result.addAll(await _fetchIosBoomApps(offset: iosBoomOffset, limit: remaining, search: ''));
-      } catch (_) {}
-    }
-
-    return _dedupeApps(result);
+    if (safeOffset >= merged.length) return const <RemoteApp>[];
+    return merged.skip(safeOffset).take(safeLimit).toList();
   }
 
   Future<List<RemoteApp>> _fetchSingleSource(

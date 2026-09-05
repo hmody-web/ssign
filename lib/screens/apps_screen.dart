@@ -14,6 +14,8 @@ import '../services/app_store.dart';
 import '../services/ipa_library_service.dart';
 import '../services/library_sources_store.dart';
 import '../services/localized.dart';
+import '../services/booma_public_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/native_ios_controls.dart';
@@ -72,8 +74,8 @@ class AppsScreen extends StatefulWidget {
 class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMixin {
   static const _nativeAppSheetChannel = MethodChannel('booma/native_app_sheet_channel');
   static const _pageSize = 60;
-  static const _cacheKey = 'ipa.library.cache.v4.merged';
-  static const _cacheSyncKey = 'ipa.library.cache.synced.v4.merged';
+  static const _cacheKey = 'ipa.library.cache.v3.merged';
+  static const _cacheSyncKey = 'ipa.library.cache.synced.v3.merged';
   static const _syncEvery = Duration(minutes: 5);
 
   final _service = IpaLibraryService();
@@ -85,6 +87,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   final List<RemoteApp> _apps = [];
   List<RemoteApp>? _searchResults;
   List<RemoteApp>? _sourceResults;
+  List<RemoteApp> _customBanners = const <RemoteApp>[];
 
   Timer? _syncTimer;
   Timer? _searchDebounce;
@@ -164,6 +167,12 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
       source = merged.values.toList();
     }
 
+    source.sort((a, b) {
+      final ad = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final byDate = bd.compareTo(ad);
+      return byDate != 0 ? byDate : b.id.compareTo(a.id);
+    });
     final category = _selectedRawCategory?.trim().toLowerCase();
     if (category == null || category.isEmpty) return source;
     return source.where((app) => app.category.trim().toLowerCase() == category).toList();
@@ -206,6 +215,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     if (Platform.isIOS) _nativeAppSheetChannel.setMethodCallHandler(_handleNativeSheetAction);
     AdminService.instance.deletedAppId.addListener(_onAdminDeletedApp);
     _restoreThenLoad();
+    unawaited(_loadCustomBanners());
     _syncTimer = Timer.periodic(_syncEvery, (_) => _syncIncrementally());
   }
 
@@ -336,7 +346,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   }
 
   void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 1400) {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 500) {
       _loadMore();
     }
   }
@@ -420,7 +430,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     final current = sourceId != null
         ? (_sourceResults ?? const <RemoteApp>[])
         : (term.isEmpty ? _apps : (_searchResults ?? const <RemoteApp>[]));
-    _loadingMore = true;
+    setState(() => _loadingMore = true);
     try {
       final items = await _service.fetchApps(
         offset: current.length,
@@ -450,7 +460,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     } catch (_) {
       // Preserve current content.
     } finally {
-      _loadingMore = false;
+      if (mounted) setState(() => _loadingMore = false);
     }
   }
 
@@ -570,9 +580,18 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
       _syncOpenNativeSheet();
     }
     else if (action == 'open_related') {
-      Future<void>.delayed(const Duration(milliseconds: 280), () {
-        if (mounted) _openDetails(selectedApp);
-      });
+      final relatedId = '${args['value'] ?? ''}';
+      RemoteApp? related;
+      for (final candidate in <RemoteApp>[..._apps, ...?_sourceResults, ...?_searchResults]) {
+        if (candidate.id == relatedId) { related = candidate; break; }
+      }
+      if (related != null) {
+        await _nativeAppSheetChannel.invokeMethod<void>('dismissAppSheet');
+        final target = related;
+        Future<void>.delayed(const Duration(milliseconds: 320), () {
+          if (mounted) _openDetails(target);
+        });
+      }
     }
     return null;
   }
@@ -648,6 +667,36 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     )));
   }
 
+  Future<void> _loadCustomBanners() async {
+    try {
+      final rows = await BoomaPublicService.instance.banners();
+      final now = DateTime.now();
+      final mapped = <RemoteApp>[];
+      for (var i = 0; i < rows.length; i++) {
+        final b = rows[i];
+        final cover = b.coverUrl.trim().isNotEmpty ? b.coverUrl.trim() : b.iconUrl.trim();
+        mapped.add(RemoteApp(
+          id: 'booma-banner:${b.id}', slug: b.id, name: b.name, nameAr: b.name,
+          subtitle: b.description, subtitleAr: b.description, developerName: '', bundleId: '', version: '', category: '', size: 0,
+          iconUrl: b.iconUrl, downloadUrl: b.linkUrl.trim().isEmpty ? null : b.linkUrl.trim(), storageType: 'booma_banner',
+          screenshots: cover.isEmpty ? const <String>[] : <String>[cover], createdAt: b.createdAt ?? now.subtract(Duration(seconds: i)), downloadCount: 0,
+        ));
+      }
+      if (mounted) setState(() => _customBanners = mapped);
+    } catch (_) {}
+  }
+
+  Future<void> _openFeatured(RemoteApp app) async {
+    if (app.storageType == 'booma_banner') {
+      final link = app.downloadUrl?.trim() ?? '';
+      if (link.isEmpty) return;
+      final uri = Uri.tryParse(link);
+      if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+      return;
+    }
+    _openDetails(app);
+  }
+
   String _friendlyError(Object e) {
     final s = e.toString().replaceFirst('HttpException: ', '').trim();
     if (s.contains('SocketException')) return tr('تحقق من اتصال الإنترنت', 'Check your internet connection');
@@ -655,31 +704,22 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   }
 
   List<RemoteApp> get _featured {
-    final list = _apps.where((a) => a.screenshots.isNotEmpty && _isAppSourceEnabled(a)).toList()
+    final latest = _apps.where(_isAppSourceEnabled).toList()
       ..sort((a, b) {
         final ad = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
         final bd = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
         return bd.compareTo(ad);
       });
-
-    // دندن من مكتبة السراي يكون دائمًا أول تطبيق في البنر.
-    RemoteApp? dandan;
-    for (final app in list) {
-      final name = app.name.trim().toLowerCase();
-      final nameAr = app.nameAr.trim().toLowerCase();
-      if ((app.storageType == 'alsaray' &&
-              (name == 'دندن' || nameAr == 'دندن')) ||
-          app.bundleId.trim() == 'com.mustm3.app') {
-        dandan = app;
-        break;
-      }
-    }
-
-    if (dandan != null) {
-      list.removeWhere((app) => app.id == dandan!.id);
-      list.insert(0, dandan);
-    }
-    return list.take(5).toList();
+    final automatic = latest.take(6).map((app) {
+      if (app.screenshots.isNotEmpty || app.iconUrl.trim().isEmpty) return app;
+      return RemoteApp(
+        id: app.id, slug: app.slug, name: app.name, nameAr: app.nameAr, subtitle: app.subtitle, subtitleAr: app.subtitleAr,
+        developerName: app.developerName, bundleId: app.bundleId, version: app.version, category: app.category, size: app.size,
+        iconUrl: app.iconUrl, downloadUrl: app.downloadUrl, storageType: app.storageType, screenshots: <String>[app.iconUrl],
+        createdAt: app.createdAt, downloadCount: app.downloadCount,
+      );
+    }).toList();
+    return <RemoteApp>[..._customBanners, ...automatic];
   }
 
   @override
@@ -690,11 +730,11 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
     final featured = _featured;
 
     return RefreshIndicator(
-      onRefresh: _syncIncrementally,
+      onRefresh: () async { await Future.wait([_syncIncrementally(), _loadCustomBanners()]); },
       child: CustomScrollView(
         key: const PageStorageKey('apps-scroll-view'),
         controller: _scrollController,
-        cacheExtent: 1100,
+        cacheExtent: 420,
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
         slivers: [
@@ -749,7 +789,7 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
                   if (_searchController.text.trim().isEmpty) ...[
                     if (featured.isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      _FeaturedCarousel(apps: featured, isArabic: isArabic, onTap: _openDetails),
+                      _FeaturedCarousel(apps: featured, isArabic: isArabic, onTap: _openFeatured),
                       const SizedBox(height: 16),
                     ],
                     if (_filterValues.isNotEmpty)
@@ -804,8 +844,11 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(18, 4, 18, 120),
               sliver: SliverList.builder(
-                itemCount: apps.length,
+                itemCount: apps.length + (_loadingMore ? 1 : 0),
                 itemBuilder: (context, index) {
+                  if (index == apps.length) {
+                    return const Padding(padding: EdgeInsets.symmetric(vertical: 18), child: Center(child: CupertinoActivityIndicator()));
+                  }
                   final app = apps[index];
                   return _AppDownloadStateBuilder(
                     app: app,
@@ -1020,7 +1063,7 @@ class _FeaturedCarouselState extends State<_FeaturedCarousel> {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        height: 228,
+        height: 215,
         child: PageView.builder(
           controller: _controller,
           physics: const BouncingScrollPhysics(),
@@ -1064,7 +1107,7 @@ class _FeaturedBannerCardState extends State<_FeaturedBannerCard> {
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 5), (_) {
+    _timer = Timer.periodic(const Duration(seconds: 4), (_) {
       if (!mounted || widget.app.screenshots.length < 2) return;
       setState(() => _image = (_image + 1) % widget.app.screenshots.length);
     });
@@ -1080,8 +1123,6 @@ class _FeaturedBannerCardState extends State<_FeaturedBannerCard> {
   Widget build(BuildContext context) {
     final app = widget.app;
     final subtitle = app.displaySubtitle(widget.isArabic);
-    final screenshot = app.screenshots.isEmpty ? '' : app.screenshots[_image % app.screenshots.length];
-    final primary = Theme.of(context).colorScheme.primary;
     return GestureDetector(
       onTap: widget.onTap,
       child: ClipRRect(
@@ -1089,94 +1130,67 @@ class _FeaturedBannerCardState extends State<_FeaturedBannerCard> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Container(color: Theme.of(context).colorScheme.surfaceContainerHighest),
-            if (screenshot.isNotEmpty)
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 320),
-                child: Image.network(
-                  screenshot,
+            Container(color: Colors.black),
+            Positioned.fill(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 420),
+                switchInCurve: Curves.easeOutCubic,
+                child: SizedBox.expand(
                   key: ValueKey('${app.id}-$_image'),
-                  fit: BoxFit.cover,
-                  alignment: Alignment.center,
-                  filterQuality: FilterQuality.low,
-                  errorBuilder: (_, __, ___) => Image.asset('assets/images/noicon.jpg', fit: BoxFit.cover),
+                  child: Image.network(
+                    app.screenshots[_image],
+                    fit: BoxFit.cover,
+                    alignment: Alignment.center,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
                 ),
-              )
-            else
-              Image.asset('assets/images/noicon.jpg', fit: BoxFit.cover),
+              ),
+            ),
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.black.withValues(alpha: .08), Colors.black.withValues(alpha: .14), Colors.black.withValues(alpha: .50)],
-                  stops: const [0, .45, 1],
+                  begin: widget.isArabic ? Alignment.centerRight : Alignment.centerLeft,
+                  end: widget.isArabic ? Alignment.centerLeft : Alignment.centerRight,
+                  colors: const [Color.fromARGB(164, 0, 0, 0), Color.fromARGB(134, 0, 0, 0), Color(0x66000000), Color(0x12000000)],
+                  stops: const [0, .42, .72, 1],
                 ),
               ),
             ),
-            PositionedDirectional(
-              top: 13,
-              start: 14,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: .32),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.white.withValues(alpha: .12), width: .6),
-                ),
-                child: Text(
-                  widget.isArabic ? '✦ مميّز في بومة' : '✦ BOOMA PICK',
-                  style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w800),
-                ),
-              ),
-            ),
-            PositionedDirectional(
-              start: 12,
-              end: 12,
-              bottom: 12,
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(13, 12, 13, 12),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: .48),
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: Colors.white.withValues(alpha: .13), width: .7),
-                ),
-                child: Row(
-                  children: [
-                    _NetworkAppIcon(url: app.iconUrl, size: 56, radius: 14),
-                    const SizedBox(width: 11),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+            Padding(
+              padding: const EdgeInsets.all(18),
+              child: Align(
+                alignment: widget.isArabic ? Alignment.centerRight : Alignment.centerLeft,
+                child: SizedBox(
+                  width: 205,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          Text(
-                            app.displayName(widget.isArabic),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white, fontSize: 17.5, fontWeight: FontWeight.w900),
+                          _NetworkAppIcon(url: app.iconUrl, size: 58, radius: 14),
+                          const SizedBox(width: 11),
+                          Expanded(
+                            child: Text(app.displayName(widget.isArabic), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w900, height: 1.12)),
                           ),
-                          if (subtitle.isNotEmpty) ...[
-                            const SizedBox(height: 3),
-                            Text(
-                              subtitle,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 11.5, height: 1.25, fontWeight: FontWeight.w500),
-                            ),
-                          ],
                         ],
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(color: primary.withValues(alpha: .18), borderRadius: BorderRadius.circular(14)),
-                      child: Text(
-                        app.version.isEmpty ? tr('جديد', 'New') : 'v${app.version}',
-                        style: TextStyle(color: primary, fontSize: 10.5, fontWeight: FontWeight.w900),
+                      if (subtitle.isNotEmpty) ...[
+                        const SizedBox(height: 11),
+                        Text(subtitle, maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.white.withValues(alpha: .82), fontSize: 12.5, height: 1.45, fontWeight: FontWeight.w500)),
+                      ],
+                      const SizedBox(height: 13),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(color: Colors.white.withValues(alpha: .16), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.white.withValues(alpha: .18))),
+                            child: Text(app.version.isEmpty ? tr('جديد', 'New') : 'v${app.version}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

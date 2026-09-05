@@ -84,6 +84,12 @@ class AdminSource {
       );
 }
 
+
+class AdminBoomaBanner {
+  final String id; final String name; final String description; final String iconUrl; final String coverUrl; final String linkUrl; final bool enabled;
+  const AdminBoomaBanner({required this.id,required this.name,required this.description,required this.iconUrl,required this.coverUrl,required this.linkUrl,required this.enabled});
+  factory AdminBoomaBanner.fromJson(Map<String,dynamic> j)=>AdminBoomaBanner(id:'${j['id']??''}',name:'${j['name']??''}',description:'${j['description']??''}',iconUrl:'${j['icon_url']??''}',coverUrl:'${j['cover_url']??''}',linkUrl:'${j['link_url']??''}',enabled:j['enabled']!=false);
+}
 class AdminDashboardData {
   final int appCount;
   final int bytes;
@@ -105,6 +111,8 @@ class AdminService {
 
   static const _base = 'https://scrptaty.com/apps/alsaray/admin_api.php';
   static const _sourcesBase = 'https://scrptaty.com/pannel/source_library.php';
+  static const _boomaBannerAdminBase = 'https://scrptaty.com/pannel/booma_banner_admin.php';
+  static const _boomaBannerAdminToken = 'booma-banner-admin-2026-7f39c1';
   static const _channel = MethodChannel('sign/admin_secure');
   static const _deviceIdKey = 'alsaray_admin_device_id_v1';
 
@@ -386,6 +394,47 @@ class AdminService {
       throw Exception('${data['error'] ?? data['message'] ?? 'فشل طلب المصادر (${resp.statusCode})'}');
     }
     return data;
+  }
+
+  Future<List<AdminBoomaBanner>> boomaBanners() async {
+    final d = await _boomaBannerRequest('list', method: 'GET');
+    return (d['items'] is List ? d['items'] as List : const []).whereType<Map>().map((e)=>AdminBoomaBanner.fromJson(Map<String,dynamic>.from(e))).toList();
+  }
+
+  Future<void> saveBoomaBanner({
+    String id='', required String name, required String description, required String linkUrl, required bool enabled,
+    String? iconPath, String? coverPath,
+  }) async {
+    await _boomaBannerMultipart('save', fields: {'id':id,'name':name,'description':description,'link_url':linkUrl,'enabled':enabled?'1':'0'}, files: {
+      if(iconPath?.isNotEmpty==true) 'icon':[iconPath!],
+      if(coverPath?.isNotEmpty==true) 'cover':[coverPath!],
+    });
+  }
+
+  Future<void> deleteBoomaBanner(String id) async {
+    await _boomaBannerMultipart('delete', fields: {'id':id});
+  }
+
+  Future<Map<String,dynamic>> _boomaBannerRequest(String action,{required String method}) async {
+    final uri=Uri.parse(_boomaBannerAdminBase).replace(queryParameters:{'action':action});
+    final req=method=='GET'?await _http.getUrl(uri):await _http.postUrl(uri);
+    req.headers.set('X-Booma-Admin',_boomaBannerAdminToken); req.headers.set(HttpHeaders.acceptHeader,'application/json');
+    final resp=await req.close(); final text=await utf8.decoder.bind(resp).join();
+    final d=Map<String,dynamic>.from(jsonDecode(text) as Map);
+    if(resp.statusCode<200||resp.statusCode>=300||d['ok']!=true) throw Exception('${d['message']??'فشل إدارة البنر'}');
+    return d;
+  }
+
+  Future<Map<String,dynamic>> _boomaBannerMultipart(String action,{Map<String,String> fields=const{},Map<String,List<String>> files=const{}}) async {
+    final boundary='----BoomaBanner${DateTime.now().microsecondsSinceEpoch}';
+    final uri=Uri.parse(_boomaBannerAdminBase).replace(queryParameters:{'action':action}); final req=await _http.postUrl(uri);
+    req.headers.set('X-Booma-Admin',_boomaBannerAdminToken); req.headers.set(HttpHeaders.acceptHeader,'application/json'); req.headers.set(HttpHeaders.contentTypeHeader,'multipart/form-data; boundary=$boundary');
+    final chunks=<List<int>>[]; final crlf=utf8.encode('\r\n');
+    for(final e in fields.entries) chunks.add(utf8.encode('--$boundary\r\nContent-Disposition: form-data; name="${e.key}"\r\n\r\n${e.value}\r\n'));
+    for(final e in files.entries){for(final path in e.value){final f=File(path);if(!await f.exists())continue;final name=path.split(Platform.pathSeparator).last;final ext=name.toLowerCase();final type=ext.endsWith('.png')?'image/png':ext.endsWith('.webp')?'image/webp':'image/jpeg';chunks.add(utf8.encode('--$boundary\r\nContent-Disposition: form-data; name="${e.key}"; filename="$name"\r\nContent-Type: $type\r\n\r\n'));chunks.add(await f.readAsBytes());chunks.add(crlf);}}
+    chunks.add(utf8.encode('--$boundary--\r\n')); req.contentLength=chunks.fold<int>(0,(n,c)=>n+c.length); for(final c in chunks) req.add(c);
+    final resp=await req.close(); final text=await utf8.decoder.bind(resp).join(); final d=Map<String,dynamic>.from(jsonDecode(text) as Map);
+    if(resp.statusCode<200||resp.statusCode>=300||d['ok']!=true) throw Exception('${d['message']??'فشل إدارة البنر'}'); return d;
   }
 
   void lock() => _accessToken = null;

@@ -214,6 +214,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     await Navigator.of(context).push(CupertinoPageRoute(builder: (_) => const AdminSourcesScreen()));
   }
 
+  Future<void> _openBanners() async {
+    await Navigator.of(context).push(CupertinoPageRoute(builder: (_) => const AdminBoomaBannersScreen()));
+  }
+
   Future<void> _delete(AdminApp app) async {
     final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
       title: const Text('حذف التطبيق؟'), content: Text('سيتم حذف ${app.name} وملف IPA نهائيًا من الخادم.'),
@@ -248,6 +252,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               Expanded(child: _stat('المساحة', _size(_data!.bytes), Icons.storage_rounded)),
             ]),
             const SizedBox(height: 14),
+            _bannerManagementCard(context),
+            const SizedBox(height: 10),
             _sourceManagementCard(context),
             const SizedBox(height: 14),
             NativeIOSTextField(controller: _queryController, onChanged: (v) => setState(() => _query = v), placeholder: 'ابحث بالاسم أو المطور أو Bundle ID', leadingSystemImage: 'magnifyingglass'),
@@ -269,6 +275,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   );
 
   Widget _stat(String t, String v, IconData i) => GlassCard(child: Row(children: [Icon(i), const SizedBox(width: 11), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(t, style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .5), fontSize: 12)), Text(v, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18))]))]));
+
+  Widget _bannerManagementCard(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: _openBanners,
+      child: GlassCard(
+        padding: const EdgeInsets.all(13),
+        child: Row(children: [
+          Container(width: 46,height:46,decoration:BoxDecoration(color:Theme.of(context).colorScheme.primary.withValues(alpha:.12),borderRadius:BorderRadius.circular(15)),child:Icon(CupertinoIcons.photo_on_rectangle,color:Theme.of(context).colorScheme.primary,size:24)),
+          const SizedBox(width:12),
+          Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('بنرات بومة',style:TextStyle(fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:3),Text('إضافة وتعديل وحذف البنرات التي تظهر في الرئيسية.',style:TextStyle(fontSize:11.5,color:Theme.of(context).colorScheme.onSurface.withValues(alpha:.5)))])),
+          const Icon(CupertinoIcons.chevron_forward,size:17),
+        ]),
+      ),
+    ),
+  );
 
   Widget _sourceManagementCard(BuildContext context) => Material(
     color: Colors.transparent,
@@ -312,6 +335,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Widget _chip(String s) => Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary.withValues(alpha: .09), borderRadius: BorderRadius.circular(9)), child: Text(s, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700)));
   Widget _errorCard(String s) => Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.red.withValues(alpha: .1), borderRadius: BorderRadius.circular(18)), child: Text(s, style: const TextStyle(color: Colors.red)));
   String _size(int b) { if (b < 1024) return '$b B'; if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(1)} KB'; if (b < 1024 * 1024 * 1024) return '${(b / 1024 / 1024).toStringAsFixed(1)} MB'; return '${(b / 1024 / 1024 / 1024).toStringAsFixed(1)} GB'; }
+}
+
+class AdminBoomaBannersScreen extends StatefulWidget {
+  const AdminBoomaBannersScreen({super.key});
+  @override State<AdminBoomaBannersScreen> createState()=>_AdminBoomaBannersScreenState();
+}
+
+class _AdminBoomaBannersScreenState extends State<AdminBoomaBannersScreen> {
+  List<AdminBoomaBanner> items=const[]; bool loading=true; String? error;
+  @override void initState(){super.initState();_load();}
+  Future<void> _load() async {setState((){loading=true;error=null;});try{items=await AdminService.instance.boomaBanners();}catch(e){error=e.toString().replaceFirst('Exception: ','');}if(mounted)setState(()=>loading=false);}
+  Future<void> _edit([AdminBoomaBanner? banner]) async {final changed=await Navigator.of(context).push<bool>(CupertinoPageRoute(builder:(_)=>AdminBoomaBannerFormScreen(banner:banner)));if(changed==true)await _load();}
+  Future<void> _delete(AdminBoomaBanner b) async {final ok=await showCupertinoDialog<bool>(context:context,builder:(c)=>CupertinoAlertDialog(title:const Text('حذف البنر؟'),content:Text('سيتم حذف ${b.name} من الصفحة الرئيسية.'),actions:[CupertinoDialogAction(onPressed:()=>Navigator.pop(c,false),child:const Text('إلغاء')),CupertinoDialogAction(isDestructiveAction:true,onPressed:()=>Navigator.pop(c,true),child:const Text('حذف'))]));if(ok!=true)return;try{await AdminService.instance.deleteBoomaBanner(b.id);await _load();}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}}
+  @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('بنرات بومة',style:TextStyle(fontWeight:FontWeight.w900)),backgroundColor:Colors.transparent,scrolledUnderElevation:0),floatingActionButton:NativeIOSButton(title:'إضافة بنر',systemImage:'plus',onPressed:()=>_edit(),prominent:true,width:135,height:48),body:RefreshIndicator(onRefresh:_load,child:ListView(padding:const EdgeInsets.fromLTRB(16,8,16,100),children:[if(loading)const Padding(padding:EdgeInsets.all(44),child:Center(child:CupertinoActivityIndicator()))else if(error!=null)Text(error!,style:const TextStyle(color:Colors.red))else if(items.isEmpty)const Padding(padding:EdgeInsets.all(40),child:Center(child:Text('لا توجد بنرات إضافية')))else ...items.map((b)=>Padding(padding:const EdgeInsets.only(bottom:9),child:GlassCard(padding:const EdgeInsets.all(11),child:Row(children:[ClipRRect(borderRadius:BorderRadius.circular(13),child:Image.network(b.coverUrl.isEmpty?b.iconUrl:b.coverUrl,width:74,height:56,fit:BoxFit.cover,errorBuilder:(_,__,___)=>Container(width:74,height:56,color:Colors.grey.withValues(alpha:.15),child:const Icon(CupertinoIcons.photo)))),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(b.name,style:const TextStyle(fontWeight:FontWeight.w900)),Text(b.description,maxLines:2,overflow:TextOverflow.ellipsis,style:TextStyle(fontSize:11,color:Theme.of(context).colorScheme.onSurface.withValues(alpha:.5)))])),PopupMenuButton<String>(onSelected:(v)=>v=='edit'?_edit(b):_delete(b),itemBuilder:(_)=>const[PopupMenuItem(value:'edit',child:Text('تعديل')),PopupMenuItem(value:'delete',child:Text('حذف'))])]))))])));
+}
+
+class AdminBoomaBannerFormScreen extends StatefulWidget {
+  final AdminBoomaBanner? banner; const AdminBoomaBannerFormScreen({super.key,this.banner});
+  @override State<AdminBoomaBannerFormScreen> createState()=>_AdminBoomaBannerFormScreenState();
+}
+class _AdminBoomaBannerFormScreenState extends State<AdminBoomaBannerFormScreen> {
+  late final TextEditingController name,desc,link; String? iconPath,coverPath; bool enabled=true,busy=false;
+  @override void initState(){super.initState();final b=widget.banner;name=TextEditingController(text:b?.name??'');desc=TextEditingController(text:b?.description??'');link=TextEditingController(text:b?.linkUrl??'');enabled=b?.enabled??true;}
+  @override void dispose(){name.dispose();desc.dispose();link.dispose();super.dispose();}
+  Future<void> pick(bool icon) async {final x=await ImagePicker().pickImage(source:ImageSource.gallery,imageQuality:90);if(x!=null)setState(()=>icon?iconPath=x.path:coverPath=x.path);}
+  Future<void> save() async {if(name.text.trim().isEmpty)return;setState(()=>busy=true);try{await AdminService.instance.saveBoomaBanner(id:widget.banner?.id??'',name:name.text.trim(),description:desc.text.trim(),linkUrl:link.text.trim(),enabled:enabled,iconPath:iconPath,coverPath:coverPath);if(mounted)Navigator.pop(context,true);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString().replaceFirst('Exception: ',''))));}finally{if(mounted)setState(()=>busy=false);}}
+  @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:Text(widget.banner==null?'إضافة بنر':'تعديل البنر'),backgroundColor:Colors.transparent),body:ListView(padding:const EdgeInsets.all(16),children:[NativeIOSTextField(controller:name,placeholder:'اسم التطبيق',leadingSystemImage:'app'),const SizedBox(height:10),NativeIOSTextField(controller:desc,placeholder:'الوصف',leadingSystemImage:'text.alignright'),const SizedBox(height:10),NativeIOSTextField(controller:link,placeholder:'الرابط الاختياري',leadingSystemImage:'link'),const SizedBox(height:12),Row(children:[Expanded(child:NativeIOSButton(title:iconPath==null?'صورة التطبيق':'تم اختيار صورة التطبيق',systemImage:'app',onPressed:()=>pick(true),height:48)),const SizedBox(width:10),Expanded(child:NativeIOSButton(title:coverPath==null?'صورة الغلاف':'تم اختيار الغلاف',systemImage:'photo',onPressed:()=>pick(false),height:48))]),const SizedBox(height:10),SwitchListTile.adaptive(value:enabled,onChanged:(v)=>setState(()=>enabled=v),title:const Text('مفعّل')),const SizedBox(height:16),NativeIOSButton(title:busy?'جاري الحفظ…':'حفظ البنر',systemImage:'checkmark',onPressed:busy?null:save,prominent:true,height:52)]));
 }
 
 class AdminSourcesScreen extends StatefulWidget {

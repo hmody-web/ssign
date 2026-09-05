@@ -53,103 +53,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
             key: const PageStorageKey('settings-main-scroll'),
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 110),
             children: [
-              Text(tr('الإعدادات', 'Settings'), key: widget.topKey, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -1)),
-              const SizedBox(height: 20),
-              GlassCard(
-                padding: EdgeInsets.zero,
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
-                  leading: _tileIcon(context, CupertinoIcons.checkmark_shield_fill),
-                  title: Text(tr('الشهادات', 'Certificates'), style: const TextStyle(fontWeight: FontWeight.w800)),
-                  subtitle: Text(tr('إدارة شهادات P12 وملفات provisioning', 'Manage P12 and provisioning identities')),
-                  trailing: const Icon(CupertinoIcons.chevron_forward, size: 18),
-                  onTap: () => Navigator.of(context).push(CupertinoPageRoute(builder: (_) => const _CertificatesPage())),
-                ),
+              Text(tr('الإعدادات', 'Settings'), key: widget.topKey, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800, letterSpacing: -1)),
+              const SizedBox(height: 16),
+
+              _compactCard(
+                context,
+                icon: CupertinoIcons.checkmark_shield_fill,
+                title: tr('الشهادات', 'Certificates'),
+                subtitle: tr('إدارة P12 وProvisioning Profile', 'Manage P12 and provisioning profiles'),
+                onTap: () => Navigator.of(context).push(CupertinoPageRoute(builder: (_) => const _CertificatesPage())),
               ),
-              const SizedBox(height: 14),
-              GlassCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(children: [
-                      _tileIcon(context, CupertinoIcons.globe),
-                      const SizedBox(width: 12),
-                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(tr('اللغة', 'Language'), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
-                        const SizedBox(height: 2),
-                        Text(tr('اختر لغة واجهة التطبيق', 'Choose the app interface language'), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48))),
-                      ])),
-                    ]),
-                    const SizedBox(height: 15),
-                    Row(children: [
-                      Expanded(child: _settingsChoice(
-                        context,
-                        selected: store.languageCode == 'ar',
-                        icon: CupertinoIcons.textformat_alt,
-                        title: 'العربية',
-                        subtitle: 'RTL',
-                        onTap: () => store.setLanguage('ar'),
-                      )),
-                      const SizedBox(width: 10),
-                      Expanded(child: _settingsChoice(
-                        context,
-                        selected: store.languageCode == 'en',
-                        icon: CupertinoIcons.textformat,
-                        title: 'English',
-                        subtitle: 'LTR',
-                        onTap: () => store.setLanguage('en'),
-                      )),
-                    ]),
-                  ],
-                ),
+              const SizedBox(height: 9),
+
+              FutureBuilder<bool>(
+                future: _adminVisibility,
+                builder: (context, snapshot) {
+                  if (snapshot.data != true) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 9),
+                    child: _compactCard(
+                      context,
+                      icon: CupertinoIcons.lock_shield_fill,
+                      title: tr('لوحة التحكم', 'Admin Control Panel'),
+                      subtitle: tr('إدارة بومة من هذا الجهاز الموثوق', 'Manage Booma from this trusted device'),
+                      onTap: () async {
+                        await Navigator.of(context).push(CupertinoPageRoute(builder: (_) => const AdminGateScreen()));
+                        await _refreshAdminVisibility();
+                      },
+                    ),
+                  );
+                },
               ),
-              const SizedBox(height: 14),
-              GlassCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(children: [
-                      _tileIcon(context, store.theme == 'light' ? CupertinoIcons.sun_max_fill : CupertinoIcons.moon_stars_fill),
-                      const SizedBox(width: 12),
-                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(tr('مظهر التطبيق', 'App Appearance'), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
-                        const SizedBox(height: 2),
-                        Text(tr('اختر المظهر الأنسب لك وسيتم حفظه تلقائياً', 'Choose your preferred appearance; it is saved automatically'), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48))),
-                      ])),
-                    ]),
-                    const SizedBox(height: 15),
-                    Row(children: [
-                      Expanded(child: _settingsChoice(
-                        context,
-                        selected: store.theme == 'dark',
-                        icon: CupertinoIcons.moon_stars_fill,
-                        title: tr('داكن', 'Dark'),
-                        subtitle: tr('مريح للعين', 'Easy on eyes'),
-                        onTap: () => store.setTheme('dark'),
-                      )),
-                      const SizedBox(width: 10),
-                      Expanded(child: _settingsChoice(
-                        context,
-                        selected: store.theme == 'light',
-                        icon: CupertinoIcons.sun_max_fill,
-                        title: tr('فاتح', 'Light'),
-                        subtitle: tr('واضح ومشرق', 'Bright & clear'),
-                        onTap: () => store.setTheme('light'),
-                      )),
-                    ]),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
+
               _sourcesCard(context),
-              const SizedBox(height: 14),
-              GlassCard(
-                padding: EdgeInsets.zero,
-                child: SwitchListTile.adaptive(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  secondary: _tileIcon(context, CupertinoIcons.bolt_fill),
-                  title: Text(tr('التوقيع التلقائي بعد التنزيل', 'Auto-sign after download'), style: const TextStyle(fontWeight: FontWeight.w900)),
-                  subtitle: Text(tr('ينزّل التطبيق ثم يوقّعه ويبدأ التثبيت تلقائياً بالخلفية', 'Download, sign, then start installation automatically in the background')),
+              const SizedBox(height: 9),
+
+              _compactCard(
+                context,
+                icon: CupertinoIcons.bolt_fill,
+                title: tr('توقيع تلقائي بعد التنزيل', 'Auto-sign after download'),
+                subtitle: tr('تنزيل ثم توقيع وبدء التثبيت تلقائياً', 'Download, sign, then start installation automatically'),
+                trailing: Switch.adaptive(
                   value: store.autoSignAfterDownload,
                   onChanged: (value) async {
                     if (value) {
@@ -160,76 +104,126 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       }
                     }
                     await store.setAutoSignAfterDownload(value);
-                    if (context.mounted) {
-                      showAppNotice(context, value ? tr('تم تفعيل التوقيع التلقائي', 'Auto-sign enabled') : tr('تم إيقاف التوقيع التلقائي', 'Auto-sign disabled'), type: AppNoticeType.success);
-                    }
                   },
                 ),
               ),
+              const SizedBox(height: 9),
 
-              FutureBuilder<bool>(
-                future: _adminVisibility,
-                builder: (context, snapshot) {
-                  // Important: while checking, or if the server cannot verify this
-                  // device, render absolutely nothing. This prevents the Admin card
-                  // from briefly flashing on unauthorized devices.
-                  if (snapshot.data != true) return const SizedBox.shrink();
-                  return Column(
-                    children: [
-                      const SizedBox(height: 14),
-                      Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(24),
-                          onTap: () async {
-                            await Navigator.of(context).push(CupertinoPageRoute(builder: (_) => const AdminGateScreen()));
-                            await _refreshAdminVisibility();
-                          },
-                          child: GlassCard(
-                            child: Row(children: [
-                              Container(
-                                width: 52,
-                                height: 52,
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(colors: [Theme.of(context).colorScheme.primary, Theme.of(context).colorScheme.primary.withValues(alpha: .65)]),
-                                  borderRadius: BorderRadius.circular(17),
-                                  boxShadow: [BoxShadow(color: Theme.of(context).colorScheme.primary.withValues(alpha: .24), blurRadius: 20, offset: const Offset(0, 8))],
-                                ),
-                                child: const Icon(CupertinoIcons.lock_shield_fill, color: Colors.white, size: 27),
-                              ),
-                              const SizedBox(width: 13),
-                              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Text(tr('لوحة تحكم الأدمن', 'Admin Control Panel'), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
-                                const SizedBox(height: 3),
-                                Text(tr('دخول مشفر ومربوط بهذا الجهاز فقط', 'Encrypted access locked to this device'), style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .52))),
-                              ])),
-                              Icon(CupertinoIcons.chevron_forward, size: 18, color: Theme.of(context).colorScheme.primary),
-                            ]),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
+              _compactCard(
+                context,
+                icon: store.theme == 'light' ? CupertinoIcons.sun_max_fill : CupertinoIcons.moon_stars_fill,
+                title: tr('المظهر', 'Appearance'),
+                subtitle: store.theme == 'light' ? tr('فاتح', 'Light') : tr('داكن', 'Dark'),
+                onTap: () => _showThemeSheet(context, store),
               ),
-              const SizedBox(height: 14),
-              GlassCard(
-                child: Column(
-                  children: [
-                    _row(CupertinoIcons.shield, tr('التوقيع المحلي', 'Local Signing'), tr('تتم معالجة P12 وملف mobileprovision على الجهاز', 'P12 + mobileprovision are processed on-device')),
-                    const Divider(height: 26),
-                    _row(CupertinoIcons.folder, tr('الملفات الموقعة', 'Signed Output'), tr('يمكن إدارة ملفات IPA الموقعة من قسم التوقيع', 'Manage signed IPA files from the Sign tab')),
-                    const Divider(height: 26),
-                    _row(CupertinoIcons.lock, tr('الخصوصية', 'Privacy'), tr('تبقى الشهادات داخل مساحة التطبيق', 'Certificates stay inside the app sandbox')),
-                  ],
-                ),
+              const SizedBox(height: 9),
+
+              _compactCard(
+                context,
+                icon: CupertinoIcons.globe,
+                title: tr('اللغة', 'Language'),
+                subtitle: store.languageCode == 'ar' ? 'العربية' : 'English',
+                onTap: () => _showLanguageSheet(context, store),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 9),
+
+              _settingsGroup(
+                context,
+                children: [
+                  _settingsInfoRow(context, CupertinoIcons.shield, tr('التوقيع المحلي', 'Local Signing'), tr('تتم معالجة بيانات التوقيع على الجهاز', 'Signing data is processed on-device')),
+                  _settingsInfoRow(context, CupertinoIcons.folder, tr('الملفات الموقعة', 'Signed Output'), tr('إدارة ملفات IPA الموقعة من قسم التوقيع', 'Manage signed IPA files from the Sign tab')),
+                  _settingsInfoRow(context, CupertinoIcons.lock, tr('الخصوصية', 'Privacy'), tr('تبقى الشهادات داخل مساحة التطبيق', 'Certificates stay inside the app sandbox'), last: true),
+                ],
+              ),
+              const SizedBox(height: 9),
               _developerCard(context),
             ],
           );
         },
       );
+
+  Widget _compactCard(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    VoidCallback? onTap,
+    Widget? trailing,
+  }) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final divider = Theme.of(context).colorScheme.onSurface.withValues(alpha: .10);
+    return Material(
+      color: dark ? Colors.black : Theme.of(context).colorScheme.surface,
+      borderRadius: BorderRadius.circular(17),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+          decoration: BoxDecoration(border: Border.all(color: divider, width: .55), borderRadius: BorderRadius.circular(17)),
+          child: Row(children: [
+            _tileIcon(context, icon, size: 38),
+            const SizedBox(width: 11),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5)),
+              const SizedBox(height: 2),
+              Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .48))),
+            ])),
+            const SizedBox(width: 8),
+            trailing ?? Icon(CupertinoIcons.chevron_forward, size: 16, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .33)),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _settingsGroup(BuildContext context, {required List<Widget> children}) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      decoration: BoxDecoration(
+        color: dark ? Colors.black : Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .10), width: .55),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: children),
+    );
+  }
+
+  Widget _settingsInfoRow(BuildContext context, IconData icon, String title, String subtitle, {bool last = false}) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+    decoration: BoxDecoration(border: last ? null : Border(bottom: BorderSide(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .09), width: .55))),
+    child: Row(children: [
+      Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+      const SizedBox(width: 11),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+        Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .46))),
+      ])),
+    ]),
+  );
+
+  Future<void> _showThemeSheet(BuildContext context, AppStore store) async {
+    await showCupertinoModalPopup<void>(context: context, builder: (c) => CupertinoActionSheet(
+      title: Text(tr('مظهر التطبيق', 'App Appearance')),
+      actions: [
+        CupertinoActionSheetAction(onPressed: () { store.setTheme('dark'); Navigator.pop(c); }, child: Text(tr('داكن', 'Dark'))),
+        CupertinoActionSheetAction(onPressed: () { store.setTheme('light'); Navigator.pop(c); }, child: Text(tr('فاتح', 'Light'))),
+      ],
+      cancelButton: CupertinoActionSheetAction(onPressed: () => Navigator.pop(c), child: Text(tr('إلغاء', 'Cancel'))),
+    ));
+  }
+
+  Future<void> _showLanguageSheet(BuildContext context, AppStore store) async {
+    await showCupertinoModalPopup<void>(context: context, builder: (c) => CupertinoActionSheet(
+      title: Text(tr('اللغة', 'Language')),
+      actions: [
+        CupertinoActionSheetAction(onPressed: () { store.setLanguage('ar'); Navigator.pop(c); }, child: const Text('العربية')),
+        CupertinoActionSheetAction(onPressed: () { store.setLanguage('en'); Navigator.pop(c); }, child: const Text('English')),
+      ],
+      cancelButton: CupertinoActionSheetAction(onPressed: () => Navigator.pop(c), child: Text(tr('إلغاء', 'Cancel'))),
+    ));
+  }
 
 
   Widget _sourcesCard(BuildContext context) => AnimatedBuilder(
@@ -237,55 +231,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         builder: (context, _) {
           final sources = LibrarySourcesStore.instance.sources;
           final enabledCount = sources.where((item) => item.enabled).length;
-          final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: .50);
-          final primary = Theme.of(context).colorScheme.primary;
-          return Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(24),
-              onTap: () => _openSourcesPage(context),
-              child: GlassCard(
-                padding: const EdgeInsets.fromLTRB(16, 15, 14, 15),
-                child: Row(
-                  children: [
-                    _tileIcon(context, CupertinoIcons.square_stack_3d_up_fill),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            tr('مصادر التطبيقات', 'App Sources'),
-                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            tr(
-                              '$enabledCount مصادر مفعّلة • اضغط للإدارة',
-                              '$enabledCount sources enabled • Tap to manage',
-                            ),
-                            style: TextStyle(fontSize: 12, color: muted),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: primary.withValues(alpha: .10),
-                        borderRadius: BorderRadius.circular(13),
-                      ),
-                      child: Text(
-                        '$enabledCount/${sources.length}',
-                        style: TextStyle(color: primary, fontWeight: FontWeight.w900, fontSize: 12),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Icon(CupertinoIcons.chevron_forward, size: 17, color: muted),
-                  ],
-                ),
-              ),
-            ),
+          return _compactCard(
+            context,
+            icon: CupertinoIcons.square_stack_3d_up_fill,
+            title: tr('المصادر', 'Sources'),
+            subtitle: tr('$enabledCount من ${sources.length} مصادر مفعّلة', '$enabledCount of ${sources.length} sources enabled'),
+            onTap: () => _openSourcesPage(context),
           );
         },
       );
@@ -927,9 +878,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         height: 54,
       );
 
-  Widget _tileIcon(BuildContext context, IconData icon) => Container(
-        width: 46,
-        height: 46,
+  Widget _tileIcon(BuildContext context, IconData icon, {double size = 46}) => Container(
+        width: size,
+        height: size,
         decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary.withValues(alpha: .14), borderRadius: BorderRadius.circular(14)),
         child: Icon(icon, color: Theme.of(context).colorScheme.primary),
       );
@@ -939,15 +890,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(17),
         onTap: () => _openDeveloperSite(context),
         child: GlassCard(
           child: Directionality(
             textDirection: TextDirection.rtl,
             child: Row(children: [
               Container(
-                width: 64,
-                height: 64,
+                width: 52,
+                height: 52,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(80),
                   border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: .28)),
