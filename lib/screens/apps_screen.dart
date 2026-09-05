@@ -74,6 +74,7 @@ class AppsScreen extends StatefulWidget {
 
 class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMixin {
   static const _nativeAppSheetChannel = MethodChannel('booma/native_app_sheet_channel');
+  static const _nativeTabChannel = MethodChannel('booma/native_system_tab_bar_channel');
   static const _pageSize = 40;
   static const _cacheKey = 'ipa.library.cache.v3.merged';
   static const _cacheSyncKey = 'ipa.library.cache.synced.v3.merged';
@@ -92,6 +93,8 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
   List<RemoteApp> _customBanners = const <RemoteApp>[];
   final Map<String, RemoteApp> _nativeRelatedApps = <String, RemoteApp>{};
   bool _restoredScroll = false;
+  double _lastScrollOffset = 0;
+  bool _tabCompact = false;
 
   Timer? _syncTimer;
   Timer? _searchDebounce;
@@ -375,7 +378,22 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
 
   void _onScroll() {
     if (!_scrollController.hasClients) return;
-    _savedMainScrollOffset = _scrollController.offset;
+    final offset = _scrollController.offset;
+    final delta = offset - _lastScrollOffset;
+    _lastScrollOffset = offset;
+    _savedMainScrollOffset = offset;
+
+    // Drive the native iOS tab bar from the actual Apps scroll controller.
+    // ScrollNotifications can be swallowed by nested/native views, while this
+    // controller always sees the real list movement.
+    if (Platform.isIOS && delta.abs() >= 1.2) {
+      final compact = delta > 0;
+      if (compact != _tabCompact) {
+        _tabCompact = compact;
+        _nativeTabChannel.invokeMethod<void>('setCompact', compact).catchError((_) {});
+      }
+    }
+
     if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 420) {
       _loadMore();
     }
@@ -614,12 +632,10 @@ class _AppsScreenState extends State<AppsScreen> with AutomaticKeepAliveClientMi
           if (candidate.id == relatedId) { related = candidate; break; }
         }
       }
-      if (related != null) {
-        _openNativeAppId = null;
+      if (related != null && mounted) {
         final target = related;
-        Future<void>.delayed(const Duration(milliseconds: 260), () {
-          if (mounted) _openDetails(target);
-        });
+        _openNativeAppId = target.id;
+        await _nativeAppSheetChannel.invokeMethod<void>('replaceAppSheet', _nativeAppPayload(target));
       }
       return null;
     }

@@ -39,6 +39,7 @@ final class NativeSystemTabBarPlugin: NSObject, FlutterPlugin {
     private static var appSheetChannel: FlutterMethodChannel?
     fileprivate static weak var activeView: NativeSystemTabBarView?
     @available(iOS 15.0, *) fileprivate static var activeAppSheetModel: NativeAppSheetStateModel?
+    fileprivate static weak var activeAppSheetHost: UIViewController?
 
     static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: channelName, binaryMessenger: registrar.messenger())
@@ -74,7 +75,8 @@ final class NativeSystemTabBarPlugin: NSObject, FlutterPlugin {
         case "dismissAppSheet":
             DispatchQueue.main.async {
                 if #available(iOS 15.0, *) { NativeSystemTabBarPlugin.activeAppSheetModel = nil }
-                NativeSystemTabBarPlugin.topViewController()?.dismiss(animated: true)
+                NativeSystemTabBarPlugin.activeAppSheetHost?.dismiss(animated: true)
+                NativeSystemTabBarPlugin.activeAppSheetHost = nil
             }
             result(nil)
         case "presentAppSheet":
@@ -82,6 +84,21 @@ final class NativeSystemTabBarPlugin: NSObject, FlutterPlugin {
                 result(FlutterError(code: "bad_payload", message: "Expected app sheet payload.", details: nil)); return
             }
             DispatchQueue.main.async { NativeSystemTabBarPlugin.presentAppSheet(payload) }
+            result(nil)
+        case "replaceAppSheet":
+            guard let payload = call.arguments as? [String: Any] else {
+                result(FlutterError(code: "bad_payload", message: "Expected app sheet payload.", details: nil)); return
+            }
+            DispatchQueue.main.async {
+                if let host = NativeSystemTabBarPlugin.activeAppSheetHost, host.presentingViewController != nil {
+                    host.dismiss(animated: false) {
+                        NativeSystemTabBarPlugin.activeAppSheetHost = nil
+                        NativeSystemTabBarPlugin.presentAppSheet(payload)
+                    }
+                } else {
+                    NativeSystemTabBarPlugin.presentAppSheet(payload)
+                }
+            }
             result(nil)
         case "updateAppSheetState":
             guard let next = call.arguments as? [String: Any] else { result(nil); return }
@@ -108,6 +125,7 @@ final class NativeSystemTabBarPlugin: NSObject, FlutterPlugin {
             appSheetChannel?.invokeMethod("action", arguments: args)
         }
         let host = UIHostingController(rootView: view)
+        activeAppSheetHost = host
         host.overrideUserInterfaceStyle = isDark ? .dark : .light
         host.modalPresentationStyle = .pageSheet
         if let sheet = host.sheetPresentationController {
@@ -220,7 +238,7 @@ fileprivate final class NativeSystemTabBarView: NSObject, FlutterPlatformView, U
     }
 
     func setCompact(_ compact: Bool) {
-        guard self.tabBar.transform.isIdentity == !compact else { return }
+        guard self.tabBar.transform.isIdentity == compact else { return }
         let target = compact ? CGAffineTransform(scaleX: 0.88, y: 0.88) : .identity
         UIView.animate(
             withDuration: compact ? 0.24 : 0.32,
@@ -1300,7 +1318,6 @@ private struct NativeAppSheetSwiftUIView: View {
                         let relatedId = item["id"] as? String ?? ""
                         guard !relatedId.isEmpty else { return }
                         action("open_related", relatedId)
-                        dismiss()
                     } label: {
                         VStack(alignment: .center, spacing: 7) {
                             AsyncImage(url: URL(string: item["iconUrl"] as? String ?? "")) { phase in
