@@ -174,4 +174,12 @@ class SigningService {
       return false;
     }
   }
+
+  Future<bool> installDownloadFinished() async {
+    try {
+      return (await _channel.invokeMethod<bool>('installDownloadFinished', const <String, dynamic>{})) ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
 }

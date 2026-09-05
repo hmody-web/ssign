@@ -11,6 +11,7 @@ final class LocalInstallServer {
   private var running = false
   private let stateLock = NSLock()
   private var downloadStarted = false
+  private var downloadFinished = false
 
   deinit { stop() }
 
@@ -18,6 +19,7 @@ final class LocalInstallServer {
     stop()
     stateLock.lock()
     downloadStarted = false
+    downloadFinished = false
     stateLock.unlock()
     ipaURL = ipa
     let fd = socket(AF_INET, SOCK_STREAM, 0)
@@ -58,6 +60,12 @@ final class LocalInstallServer {
     stateLock.lock()
     defer { stateLock.unlock() }
     return downloadStarted
+  }
+
+  var hasFinishedDownload: Bool {
+    stateLock.lock()
+    defer { stateLock.unlock() }
+    return downloadFinished
   }
 
   private func acceptLoop(_ fd: Int32) {
@@ -107,6 +115,11 @@ final class LocalInstallServer {
       guard !chunk.isEmpty else { break }
       guard sendAll(fd,chunk) else { break }
       left -= UInt64(chunk.count)
+    }
+    if left == 0 {
+      stateLock.lock()
+      downloadFinished = true
+      stateLock.unlock()
     }
   }
 

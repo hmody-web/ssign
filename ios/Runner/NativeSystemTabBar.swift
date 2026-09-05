@@ -64,6 +64,19 @@ final class NativeSystemTabBarPlugin: NSObject, FlutterPlugin {
             }
             DispatchQueue.main.async { NativeSystemTabBarPlugin.activeView?.setSelectedIndex(value) }
             result(nil)
+        case "setCompact":
+            guard let compact = call.arguments as? Bool else {
+                result(FlutterError(code: "bad_compact", message: "Expected a boolean compact state.", details: nil))
+                return
+            }
+            DispatchQueue.main.async { NativeSystemTabBarPlugin.activeView?.setCompact(compact) }
+            result(nil)
+        case "dismissAppSheet":
+            DispatchQueue.main.async {
+                if #available(iOS 15.0, *) { NativeSystemTabBarPlugin.activeAppSheetModel = nil }
+                NativeSystemTabBarPlugin.topViewController()?.dismiss(animated: true)
+            }
+            result(nil)
         case "presentAppSheet":
             guard let payload = call.arguments as? [String: Any] else {
                 result(FlutterError(code: "bad_payload", message: "Expected app sheet payload.", details: nil)); return

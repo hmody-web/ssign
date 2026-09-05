@@ -30,6 +30,7 @@ final class SignNativePlugin: NSObject, FlutterPlugin {
     case "saveImageToPhotos": saveImageToPhotos(args, result: result)
     case "installIpa": install(args, result: result)
     case "installDownloadStarted": result(installServer.hasStartedDownload)
+    case "installDownloadFinished": result(installServer.hasFinishedDownload)
     case "savePassword": savePassword(args,result:result)
     case "loadPassword": loadPassword(args,result:result)
     case "deletePassword": deletePassword(args,result:result)

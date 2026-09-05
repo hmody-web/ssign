@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -125,7 +126,19 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
       if (!started) throw Exception(tr('لم يبدأ مثبت iOS، حاول مرة أخرى', 'The iOS installer did not start. Try again.'));
       if (!mounted) return;
       setState(() { _updateBusy = false; _updateProgress = 1; _updateInstallStarted = true; });
-      showAppNotice(context, tr('بدأ تثبيت التحديث. بعد اكتماله افتح بومة من جديد.', 'Update installation started. Reopen Booma when it finishes.'), type: AppNoticeType.success, duration: const Duration(seconds: 5));
+      showAppNotice(context, tr('بدأ تثبيت التحديث. سيتم إغلاق بومة تلقائياً.', 'Update installation started. Booma will close automatically.'), type: AppNoticeType.success, duration: const Duration(seconds: 2));
+      // A GET for app.ipa starts only after the user confirms Install. Keep the
+      // local OTA server alive until iOS has fully received the IPA, otherwise
+      // terminating Booma early can corrupt/cancel larger updates. Then close
+      // two seconds later.
+      if (Platform.isIOS) {
+        for (var i = 0; i < 240; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+          if (await SigningService().installDownloadFinished()) break;
+        }
+        await Future<void>.delayed(const Duration(seconds: 2));
+        exit(0);
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() { _updateBusy = false; _updateProgress = 0; _updateError = e.toString().replaceFirst('Exception: ', ''); });

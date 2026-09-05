@@ -218,26 +218,27 @@ class _SystemBottomBar extends StatelessWidget {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
 
     if (Platform.isIOS) {
-      // Keep Liquid Glass itself untouched. Behind it use only a black-to-clear
-      // fade; no BackdropFilter, so app cards remain crisp while disappearing
-      // naturally beneath the bottom bar.
+      // Keep Liquid Glass itself untouched. The fade follows the active app
+      // theme: light in light mode and dark in dark mode, with no blur.
+      final base = Theme.of(context).scaffoldBackgroundColor;
       return SizedBox(
         height: 50 + bottomInset,
         child: ClipRect(
           child: Stack(
             fit: StackFit.expand,
             children: [
-              const DecoratedBox(
+              DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Color(0x00000000),
-                      Color(0x52000000),
-                      Color(0xE6000000),
+                      base.withValues(alpha: 0),
+                      base.withValues(alpha: .48),
+                      base.withValues(alpha: .92),
+                      base,
                     ],
-                    stops: [0, .50, 1],
+                    stops: const [0, .44, .78, 1],
                   ),
                 ),
               ),
