@@ -5,6 +5,8 @@ import '../services/app_store.dart';
 import '../services/admin_service.dart';
 import '../services/localized.dart';
 import '../services/signing_service.dart';
+import '../services/booma_public_service.dart';
+import '../services/app_version_service.dart';
 import '../services/library_sources_store.dart';
 import '../services/source_catalog_service.dart';
 import '../widgets/app_notice.dart';
@@ -21,13 +23,175 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObserver {
   late Future<bool> _adminVisibility;
+  BoomaUpdateInfo? _updateInfo;
+  String _installedVersion = '';
+  String _installedBuild = '';
+  bool _updateLoading = true;
+  bool _updateBusy = false;
+  bool _updateInstallStarted = false;
+  double _updateProgress = 0;
+  String? _updateError;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _adminVisibility = AdminService.instance.isThisDeviceAdmin();
+    _loadUpdateState();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    Future<void>.delayed(const Duration(milliseconds: 800), () {
+      if (mounted && !_updateBusy) _loadUpdateState();
+    });
+  }
+
+  int _compareVersion(String a, String b) {
+    List<int> parts(String value) => value.split(RegExp(r'[^0-9]+')).where((x) => x.isNotEmpty).map((x) => int.tryParse(x) ?? 0).toList();
+    final aa = parts(a), bb = parts(b), count = aa.length > bb.length ? aa.length : bb.length;
+    for (var i = 0; i < count; i++) {
+      final av = i < aa.length ? aa[i] : 0;
+      final bv = i < bb.length ? bb[i] : 0;
+      if (av != bv) return av.compareTo(bv);
+    }
+    return 0;
+  }
+
+  bool get _hasUpdate {
+    final info = _updateInfo;
+    if (info == null || !info.active || info.ipaUrl.trim().isEmpty || info.version.trim().isEmpty) return false;
+    final versionCompare = _compareVersion(info.version, _installedVersion);
+    if (versionCompare > 0) return true;
+    if (versionCompare < 0) return false;
+    final targetBuild = int.tryParse(info.build);
+    final currentBuild = int.tryParse(_installedBuild);
+    return targetBuild != null && currentBuild != null && targetBuild > currentBuild;
+  }
+
+  Future<void> _loadUpdateState() async {
+    try {
+      final results = await Future.wait<dynamic>([
+        AppVersionService.instance.current(),
+        BoomaPublicService.instance.updateInfo(),
+      ]);
+      final installed = results[0] as InstalledAppInfo;
+      final update = results[1] as BoomaUpdateInfo;
+      if (!mounted) return;
+      setState(() {
+        _installedVersion = installed.version;
+        _installedBuild = installed.build;
+        _updateInfo = update;
+        _updateLoading = false;
+        _updateError = null;
+        _updateInstallStarted = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _updateLoading = false;
+        _updateError = tr('تعذر فحص التحديث حالياً', 'Could not check for updates');
+      });
+    }
+  }
+
+  Future<void> _installUpdate() async {
+    final info = _updateInfo;
+    if (info == null || !_hasUpdate || _updateBusy) return;
+    setState(() { _updateBusy = true; _updateProgress = 0; _updateError = null; });
+    try {
+      final file = await BoomaPublicService.instance.downloadUpdate(info.ipaUrl, onProgress: (p) {
+        if (mounted) setState(() => _updateProgress = p * .92);
+      });
+      if (!mounted) return;
+      setState(() => _updateProgress = .95);
+      final launched = await SigningService().install(file.path);
+      if (!launched) throw Exception(tr('تعذر بدء مثبت التحديث', 'Could not start the update installer'));
+      var started = false;
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 450));
+        started = await SigningService().installDownloadStarted();
+        if (started) break;
+      }
+      if (!started) throw Exception(tr('لم يبدأ مثبت iOS، حاول مرة أخرى', 'The iOS installer did not start. Try again.'));
+      if (!mounted) return;
+      setState(() { _updateBusy = false; _updateProgress = 1; _updateInstallStarted = true; });
+      showAppNotice(context, tr('بدأ تثبيت التحديث. بعد اكتماله افتح بومة من جديد.', 'Update installation started. Reopen Booma when it finishes.'), type: AppNoticeType.success, duration: const Duration(seconds: 5));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _updateBusy = false; _updateProgress = 0; _updateError = e.toString().replaceFirst('Exception: ', ''); });
+      showAppNotice(context, _updateError!, type: AppNoticeType.error);
+    }
+  }
+
+  Widget _updateCard(BuildContext context) {
+    final info = _updateInfo;
+    final available = _hasUpdate;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    String buttonText;
+    if (_updateLoading) {
+      buttonText = tr('فحص…', 'Checking…');
+    } else if (_updateBusy) {
+      buttonText = '${(_updateProgress * 100).round()}%';
+    } else if (_updateInstallStarted) {
+      buttonText = tr('قيد التثبيت', 'Installing');
+    } else if (available) {
+      buttonText = tr('تحديث', 'Update');
+    } else if (_updateError != null && info == null) {
+      buttonText = tr('غير متاح', 'Unavailable');
+    } else {
+      buttonText = tr('محدّث', 'Up to date');
+    }
+    final subtitle = info?.description.trim().isNotEmpty == true
+        ? info!.description
+        : tr('متجر شامل لتطبيقاتك', 'Your complete app library');
+    return Material(
+      color: _settingsCardColor(context),
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+        decoration: BoxDecoration(border: Border.all(color: onSurface.withValues(alpha: .10), width: .55), borderRadius: BorderRadius.circular(20)),
+        child: Row(children: [
+          ClipRRect(borderRadius: BorderRadius.circular(14), child: Image.asset('assets/images/icon.png', width: 52, height: 52, fit: BoxFit.cover)),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(info?.appName.trim().isNotEmpty == true ? info!.appName : 'Booma', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+            const SizedBox(height: 2),
+            Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, height: 1.35, color: onSurface.withValues(alpha: .50))),
+            if (_updateError != null) ...[
+              const SizedBox(height: 3),
+              Text(_updateError!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 9.5, color: CupertinoColors.systemRed)),
+            ] else if (info != null && info.version.isNotEmpty) ...[
+              const SizedBox(height: 3),
+              Text(available ? '${tr('متوفر', 'Available')} v${info.version}${info.build.isNotEmpty ? ' (${info.build})' : ''}' : '${tr('الإصدار الحالي', 'Current')} v$_installedVersion${_installedBuild.isNotEmpty ? ' ($_installedBuild)' : ''}', style: TextStyle(fontSize: 9.5, color: onSurface.withValues(alpha: .36))),
+            ],
+          ])),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 84,
+            height: 36,
+            child: CupertinoButton(
+              padding: EdgeInsets.zero,
+              color: available && !_updateBusy && !_updateInstallStarted ? Theme.of(context).colorScheme.primary : onSurface.withValues(alpha: .08),
+              onPressed: available && !_updateBusy && !_updateInstallStarted ? _installUpdate : null,
+              child: _updateBusy
+                  ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(value: _updateProgress, strokeWidth: 2.2, color: Colors.white))
+                  : Text(buttonText, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: available && !_updateInstallStarted ? Colors.white : onSurface.withValues(alpha: .55))),
+            ),
+          ),
+        ]),
+      ),
+    );
   }
 
   Future<void> _refreshAdminVisibility() async {
@@ -55,6 +219,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               Text(tr('الإعدادات', 'Settings'), key: widget.topKey, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800, letterSpacing: -1)),
               const SizedBox(height: 16),
+
+              _updateCard(context),
+              const SizedBox(height: 9),
 
               _compactCard(
                 context,

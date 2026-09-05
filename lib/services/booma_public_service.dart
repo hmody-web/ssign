@@ -26,10 +26,14 @@ class BoomaUpdateInfo {
   final String appName;
   final String description;
   final String ipaUrl;
-  const BoomaUpdateInfo({required this.active,required this.releaseId,required this.title,required this.appName,required this.description,required this.ipaUrl});
+  final String version;
+  final String build;
+  final DateTime? publishedAt;
+  const BoomaUpdateInfo({required this.active,required this.releaseId,required this.title,required this.appName,required this.description,required this.ipaUrl,required this.version,required this.build,required this.publishedAt});
   factory BoomaUpdateInfo.fromJson(Map<String,dynamic> j)=>BoomaUpdateInfo(
     active:j['active']==true, releaseId:'${j['release_id']??''}', title:'${j['title']??'يتوفر تحديث جديد'}',
-    appName:'${j['app_name']??'Booma'}', description:'${j['description']??'متجر شامل لتطبيقاتك'}', ipaUrl:'${j['ipa_url']??'https://scrptaty.com/apps/booma/Boomaz.ipa'}',
+    appName:'${j['app_name']??'Booma'}', description:'${j['description']??'متجر شامل لتطبيقاتك'}', ipaUrl:'${j['ipa_url']??'https://scrptaty.com/apps/booma/Booma.ipa'}',
+    version:'${j['version']??''}', build:'${j['build']??''}', publishedAt:DateTime.tryParse('${j['published_at']??''}'),
   );
 }
 

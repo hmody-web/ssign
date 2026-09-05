@@ -192,7 +192,7 @@ fileprivate final class NativeSystemTabBarView: NSObject, FlutterPlatformView, U
 
         rootView.addSubview(tabBar)
         setSelectedIndex(selectedIndex)
-        tabBar.transform = compact ? CGAffineTransform(scaleX: 0.90, y: 0.90) : .identity
+        tabBar.transform = compact ? CGAffineTransform(scaleX: 0.88, y: 0.88) : .identity
         tabBar.alpha = compact ? 0.94 : 1.0
         NativeSystemTabBarPlugin.activeView = self
     }
@@ -208,7 +208,7 @@ fileprivate final class NativeSystemTabBarView: NSObject, FlutterPlatformView, U
 
     func setCompact(_ compact: Bool) {
         UIView.animate(withDuration: 0.28, delay: 0, usingSpringWithDamping: 0.88, initialSpringVelocity: 0.2, options: [.beginFromCurrentState, .allowUserInteraction]) {
-            self.tabBar.transform = compact ? CGAffineTransform(scaleX: 0.90, y: 0.90) : .identity
+            self.tabBar.transform = compact ? CGAffineTransform(scaleX: 0.88, y: 0.88) : .identity
             self.tabBar.alpha = compact ? 0.94 : 1.0
         }
     }
@@ -745,6 +745,22 @@ private final class NativeFeaturedBannerFactory: NSObject, FlutterPlatformViewFa
     }
 }
 
+private final class BoomaBannerGradientView: UIView {
+    var colors: [CGColor] = [] { didSet { setNeedsLayout() } }
+    var locations: [NSNumber]? { didSet { setNeedsLayout() } }
+    var startPoint = CGPoint(x: 0, y: 0.5)
+    var endPoint = CGPoint(x: 1, y: 0.5)
+    override class var layerClass: AnyClass { CAGradientLayer.self }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard let g = layer as? CAGradientLayer else { return }
+        g.colors = colors
+        g.locations = locations
+        g.startPoint = startPoint
+        g.endPoint = endPoint
+    }
+}
+
 private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
     let root = UIControl()
     let bridge: NativeControlBridge
@@ -762,8 +778,9 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
         imageURLs = app["screenshots"] as? [String] ?? []
 
         root.frame = frame
-        root.backgroundColor = .secondarySystemBackground
-        root.layer.cornerRadius = 24
+        root.backgroundColor = .black
+        root.layer.cornerRadius = 28
+        root.layer.cornerCurve = .continuous
         root.clipsToBounds = true
         root.semanticContentAttribute = isArabic ? .forceRightToLeft : .forceLeftToRight
         root.addTarget(self, action: #selector(tapped), for: .touchUpInside)
@@ -771,92 +788,174 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
         let bg = UIImageView(frame: root.bounds)
         bg.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         bg.contentMode = .scaleAspectFill
-        bg.backgroundColor = .black
+        bg.backgroundColor = UIColor(white: 0.06, alpha: 1)
         bg.isUserInteractionEnabled = false
         root.addSubview(bg)
         backgroundImage = bg
         loadBannerImage()
 
+        // Preserve the artwork. A very light blur only takes the harsh digital edge off it.
         let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
         blur.translatesAutoresizingMaskIntoConstraints = false
-        blur.alpha = 0.50
+        blur.alpha = 0.16
         blur.isUserInteractionEnabled = false
         root.addSubview(blur)
-        let shade = UIView()
-        shade.translatesAutoresizingMaskIntoConstraints = false
-        shade.backgroundColor = UIColor.black.withAlphaComponent(0.12)
-        shade.isUserInteractionEnabled = false
-        root.addSubview(shade)
+
+        // Cinematic contrast: transparent over the hero art, darker only behind copy and at the bottom.
+        let sideShade = BoomaBannerGradientView()
+        sideShade.translatesAutoresizingMaskIntoConstraints = false
+        sideShade.isUserInteractionEnabled = false
+        sideShade.colors = isArabic
+          ? [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.22).cgColor, UIColor.black.withAlphaComponent(0.84).cgColor]
+          : [UIColor.black.withAlphaComponent(0.84).cgColor, UIColor.black.withAlphaComponent(0.22).cgColor, UIColor.clear.cgColor]
+        sideShade.locations = [0.0, 0.47, 1.0]
+        root.addSubview(sideShade)
+
+        let bottomShade = BoomaBannerGradientView()
+        bottomShade.translatesAutoresizingMaskIntoConstraints = false
+        bottomShade.isUserInteractionEnabled = false
+        bottomShade.startPoint = CGPoint(x: 0.5, y: 0)
+        bottomShade.endPoint = CGPoint(x: 0.5, y: 1)
+        bottomShade.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.56).cgColor]
+        bottomShade.locations = [0.35, 1.0]
+        root.addSubview(bottomShade)
+
+        // Premium floating information capsule.
+        let infoPanel = UIView()
+        infoPanel.translatesAutoresizingMaskIntoConstraints = false
+        infoPanel.backgroundColor = UIColor.black.withAlphaComponent(0.20)
+        infoPanel.layer.cornerRadius = 22
+        infoPanel.layer.cornerCurve = .continuous
+        infoPanel.layer.borderWidth = 0.55
+        infoPanel.layer.borderColor = UIColor.white.withAlphaComponent(0.18).cgColor
+        infoPanel.isUserInteractionEnabled = false
+        root.addSubview(infoPanel)
+
+        let panelBlur = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+        panelBlur.translatesAutoresizingMaskIntoConstraints = false
+        panelBlur.layer.cornerRadius = 22
+        panelBlur.layer.cornerCurve = .continuous
+        panelBlur.clipsToBounds = true
+        panelBlur.alpha = 0.74
+        infoPanel.addSubview(panelBlur)
 
         let icon = UIImageView()
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.contentMode = .scaleAspectFill
-        icon.layer.cornerRadius = 15
+        icon.layer.cornerRadius = 17
+        icon.layer.cornerCurve = .continuous
         icon.clipsToBounds = true
+        icon.layer.borderWidth = 0.65
+        icon.layer.borderColor = UIColor.white.withAlphaComponent(0.28).cgColor
         icon.backgroundColor = UIColor.white.withAlphaComponent(0.12)
         loadRemoteImage(app["iconUrl"] as? String, into: icon)
+
+        let eyebrow = UILabel()
+        eyebrow.translatesAutoresizingMaskIntoConstraints = false
+        eyebrow.text = isArabic ? "مختار لك" : "FEATURED"
+        eyebrow.font = UIFont.systemFont(ofSize: 9.5, weight: .bold)
+        eyebrow.textColor = UIColor.white.withAlphaComponent(0.66)
+        eyebrow.textAlignment = isArabic ? .right : .left
 
         let title = UILabel()
         title.translatesAutoresizingMaskIntoConstraints = false
         title.text = app["displayName"] as? String ?? ""
-        title.font = .preferredFont(forTextStyle: .title2)
+        title.font = UIFont.systemFont(ofSize: 21, weight: .heavy)
         title.textColor = .white
-        title.numberOfLines = 2
+        title.numberOfLines = 1
+        title.adjustsFontSizeToFitWidth = true
+        title.minimumScaleFactor = 0.78
         title.textAlignment = isArabic ? .right : .left
 
         let subtitle = UILabel()
         subtitle.translatesAutoresizingMaskIntoConstraints = false
         subtitle.text = app["displaySubtitle"] as? String ?? ""
-        subtitle.font = .preferredFont(forTextStyle: .subheadline)
-        subtitle.textColor = UIColor.white.withAlphaComponent(0.82)
-        subtitle.numberOfLines = 3
+        subtitle.font = UIFont.systemFont(ofSize: 12.5, weight: .medium)
+        subtitle.textColor = UIColor.white.withAlphaComponent(0.74)
+        subtitle.numberOfLines = 2
         subtitle.textAlignment = isArabic ? .right : .left
 
-        let version = UIButton(type: .system)
+        let version = UILabel()
         version.translatesAutoresizingMaskIntoConstraints = false
-        var vc: UIButton.Configuration
-        if #available(iOS 26.0, *) { vc = .glass() } else { vc = .tinted() }
-        vc.title = ((app["version"] as? String)?.isEmpty == false) ? "v\(app["version"] as? String ?? "")" : (isArabic ? "جديد" : "New")
-        vc.cornerStyle = .capsule
-        vc.contentInsets = NSDirectionalEdgeInsets(top: 3, leading: 8, bottom: 3, trailing: 8)
-        vc.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
-            var outgoing = incoming
-            outgoing.font = UIFont.systemFont(ofSize: 10, weight: .semibold)
-            return outgoing
-        }
-        version.configuration = vc
-        version.tintColor = .white
-        version.isUserInteractionEnabled = false
+        let rawVersion = (app["version"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        version.text = rawVersion.isEmpty ? (isArabic ? "جديد" : "NEW") : "v\(rawVersion)"
+        version.font = UIFont.systemFont(ofSize: 10, weight: .bold)
+        version.textColor = .white
+        version.textAlignment = .center
+        version.backgroundColor = UIColor.white.withAlphaComponent(0.14)
+        version.layer.cornerRadius = 10
+        version.layer.cornerCurve = .continuous
+        version.clipsToBounds = true
 
-        root.addSubview(icon); root.addSubview(title); root.addSubview(subtitle); root.addSubview(version)
+        let arrow = UIImageView(image: UIImage(systemName: isArabic ? "arrow.left" : "arrow.right"))
+        arrow.translatesAutoresizingMaskIntoConstraints = false
+        arrow.tintColor = UIColor.white.withAlphaComponent(0.78)
+        arrow.contentMode = .scaleAspectFit
+
+        infoPanel.addSubview(icon)
+        infoPanel.addSubview(eyebrow)
+        infoPanel.addSubview(title)
+        infoPanel.addSubview(subtitle)
+        infoPanel.addSubview(version)
+        infoPanel.addSubview(arrow)
+
         NSLayoutConstraint.activate([
             blur.leadingAnchor.constraint(equalTo: root.leadingAnchor), blur.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             blur.topAnchor.constraint(equalTo: root.topAnchor), blur.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            shade.leadingAnchor.constraint(equalTo: root.leadingAnchor), shade.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            shade.topAnchor.constraint(equalTo: root.topAnchor), shade.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 62), icon.heightAnchor.constraint(equalToConstant: 62),
-            title.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor, multiplier: 0.53),
-            subtitle.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor, multiplier: 0.60),
-            version.heightAnchor.constraint(greaterThanOrEqualToConstant: 24)
+            sideShade.leadingAnchor.constraint(equalTo: root.leadingAnchor), sideShade.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            sideShade.topAnchor.constraint(equalTo: root.topAnchor), sideShade.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            bottomShade.leadingAnchor.constraint(equalTo: root.leadingAnchor), bottomShade.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            bottomShade.topAnchor.constraint(equalTo: root.topAnchor), bottomShade.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+
+            infoPanel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
+            infoPanel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -14),
+            infoPanel.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -14),
+            infoPanel.heightAnchor.constraint(equalToConstant: 104),
+            panelBlur.leadingAnchor.constraint(equalTo: infoPanel.leadingAnchor), panelBlur.trailingAnchor.constraint(equalTo: infoPanel.trailingAnchor),
+            panelBlur.topAnchor.constraint(equalTo: infoPanel.topAnchor), panelBlur.bottomAnchor.constraint(equalTo: infoPanel.bottomAnchor),
+
+            icon.widthAnchor.constraint(equalToConstant: 68), icon.heightAnchor.constraint(equalToConstant: 68),
+            icon.centerYAnchor.constraint(equalTo: infoPanel.centerYAnchor),
+            version.widthAnchor.constraint(greaterThanOrEqualToConstant: 45), version.heightAnchor.constraint(equalToConstant: 21),
+            arrow.widthAnchor.constraint(equalToConstant: 17), arrow.heightAnchor.constraint(equalToConstant: 17),
         ])
+
         if isArabic {
             NSLayoutConstraint.activate([
-                icon.rightAnchor.constraint(equalTo: root.rightAnchor, constant: -20), icon.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
-                title.rightAnchor.constraint(equalTo: icon.leftAnchor, constant: -14), title.leftAnchor.constraint(greaterThanOrEqualTo: root.leftAnchor, constant: 20), title.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
-                subtitle.rightAnchor.constraint(equalTo: icon.leftAnchor, constant: -14), subtitle.leftAnchor.constraint(greaterThanOrEqualTo: root.leftAnchor, constant: 20), subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 8),
-                version.rightAnchor.constraint(equalTo: icon.leftAnchor, constant: -14), version.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -18)
+                icon.trailingAnchor.constraint(equalTo: infoPanel.trailingAnchor, constant: -14),
+                eyebrow.trailingAnchor.constraint(equalTo: icon.leadingAnchor, constant: -12),
+                eyebrow.leadingAnchor.constraint(equalTo: infoPanel.leadingAnchor, constant: 54),
+                eyebrow.topAnchor.constraint(equalTo: infoPanel.topAnchor, constant: 15),
+                title.trailingAnchor.constraint(equalTo: icon.leadingAnchor, constant: -12),
+                title.leadingAnchor.constraint(equalTo: infoPanel.leadingAnchor, constant: 54),
+                title.topAnchor.constraint(equalTo: eyebrow.bottomAnchor, constant: 2),
+                subtitle.trailingAnchor.constraint(equalTo: icon.leadingAnchor, constant: -12),
+                subtitle.leadingAnchor.constraint(equalTo: infoPanel.leadingAnchor, constant: 54),
+                subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 3),
+                version.leadingAnchor.constraint(equalTo: infoPanel.leadingAnchor, constant: 14),
+                version.centerYAnchor.constraint(equalTo: infoPanel.centerYAnchor),
+                arrow.leadingAnchor.constraint(equalTo: version.trailingAnchor, constant: 8), arrow.centerYAnchor.constraint(equalTo: infoPanel.centerYAnchor)
             ])
         } else {
             NSLayoutConstraint.activate([
-                icon.leftAnchor.constraint(equalTo: root.leftAnchor, constant: 20), icon.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
-                title.leftAnchor.constraint(equalTo: icon.rightAnchor, constant: 14), title.rightAnchor.constraint(lessThanOrEqualTo: root.rightAnchor, constant: -20), title.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
-                subtitle.leftAnchor.constraint(equalTo: icon.rightAnchor, constant: 14), subtitle.rightAnchor.constraint(lessThanOrEqualTo: root.rightAnchor, constant: -20), subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 8),
-                version.leftAnchor.constraint(equalTo: icon.rightAnchor, constant: 14), version.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -18)
+                icon.leadingAnchor.constraint(equalTo: infoPanel.leadingAnchor, constant: 14),
+                eyebrow.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12),
+                eyebrow.trailingAnchor.constraint(equalTo: infoPanel.trailingAnchor, constant: -54),
+                eyebrow.topAnchor.constraint(equalTo: infoPanel.topAnchor, constant: 15),
+                title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12),
+                title.trailingAnchor.constraint(equalTo: infoPanel.trailingAnchor, constant: -54),
+                title.topAnchor.constraint(equalTo: eyebrow.bottomAnchor, constant: 2),
+                subtitle.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12),
+                subtitle.trailingAnchor.constraint(equalTo: infoPanel.trailingAnchor, constant: -54),
+                subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 3),
+                version.trailingAnchor.constraint(equalTo: infoPanel.trailingAnchor, constant: -14),
+                version.centerYAnchor.constraint(equalTo: infoPanel.centerYAnchor),
+                arrow.trailingAnchor.constraint(equalTo: version.leadingAnchor, constant: -8), arrow.centerYAnchor.constraint(equalTo: infoPanel.centerYAnchor)
             ])
         }
 
         if imageURLs.count > 1 {
-            timer = Timer.scheduledTimer(withTimeInterval: 4.5, repeats: true) { [weak self] _ in
+            timer = Timer.scheduledTimer(withTimeInterval: 5.2, repeats: true) { [weak self] _ in
                 guard let self else { return }
                 self.imageIndex = (self.imageIndex + 1) % self.imageURLs.count
                 self.loadBannerImage(animated: true)
@@ -867,24 +966,28 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
     deinit { timer?.invalidate() }
 
     private func loadBannerImage(animated: Bool = false) {
-        guard !imageURLs.isEmpty, let url = URL(string: imageURLs[imageIndex]) else { return }
-        let key = imageURLs[imageIndex]
-        if let cached = BoomaImageCache.shared.image(for: key) {
-            backgroundImage?.image = cached
+        guard !imageURLs.isEmpty, let view = backgroundImage else { return }
+        let raw = imageURLs[imageIndex]
+        guard let url = URL(string: raw), !raw.isEmpty else { return }
+        if let cached = BoomaImageCache.shared.image(for: raw) {
+            if animated {
+                UIView.transition(with: view, duration: 0.5, options: [.transitionCrossDissolve, .allowAnimatedContent]) { view.image = cached }
+            } else { view.image = cached }
             return
         }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let self, let data, let image = UIImage(data: data) else { return }
-            BoomaImageCache.shared.store(image, for: key)
+        URLSession.shared.dataTask(with: url) { [weak self, weak view] data, _, _ in
+            guard let self, let view, let data, let image = UIImage(data: data) else { return }
+            BoomaImageCache.shared.store(image, for: raw)
             DispatchQueue.main.async {
-                guard let view = self.backgroundImage else { return }
-                if animated { UIView.transition(with: view, duration: 0.45, options: .transitionCrossDissolve) { view.image = image } }
-                else { view.image = image }
+                guard self.imageURLs.indices.contains(self.imageIndex), self.imageURLs[self.imageIndex] == raw else { return }
+                if animated {
+                    UIView.transition(with: view, duration: 0.5, options: [.transitionCrossDissolve, .allowAnimatedContent]) { view.image = image }
+                } else { view.image = image }
             }
         }.resume()
     }
+
     private func loadRemoteImage(_ raw: String?, into view: UIImageView) {
-        view.image = UIImage(named: "NoIcon")
         guard let raw, let url = URL(string: raw), !raw.isEmpty else { return }
         if let cached = BoomaImageCache.shared.image(for: raw) { view.image = cached; return }
         URLSession.shared.dataTask(with: url) { data, _, _ in
@@ -893,6 +996,7 @@ private final class NativeFeaturedBannerView: NSObject, FlutterPlatformView {
             DispatchQueue.main.async { view.image = image }
         }.resume()
     }
+
     @objc private func tapped() { bridge.channel.invokeMethod("tap", arguments: nil) }
     func view() -> UIView { root }
 }

@@ -1,14 +1,11 @@
 import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/sign_models.dart';
 import '../services/app_store.dart';
-import '../services/booma_public_service.dart';
 import '../services/signing_service.dart';
 import '../widgets/app_notice.dart';
 import '../services/localized.dart';
@@ -34,7 +31,6 @@ class _HomeShellState extends State<HomeShell> {
   bool _signingBusy = false;
   DateTime? _lastBlockedNotice;
   bool _tabCompact = false;
-  bool _checkingUpdate = false;
   final _topKeys = List<GlobalKey>.generate(4, (_) => GlobalKey());
 
   void _openSignForFile(ImportedFile file) {
@@ -49,7 +45,6 @@ class _HomeShellState extends State<HomeShell> {
     if (Platform.isIOS) {
       _nativeTabChannel.setMethodCallHandler(_handleNativeTabCall);
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkMandatoryUpdate());
   }
 
   Future<dynamic> _handleNativeTabCall(MethodCall call) async {
@@ -87,137 +82,6 @@ class _HomeShellState extends State<HomeShell> {
       }
     }
     return false;
-  }
-
-  Future<void> _checkMandatoryUpdate() async {
-    if (_checkingUpdate || !mounted) return;
-    _checkingUpdate = true;
-    try {
-      final info = await BoomaPublicService.instance.updateInfo();
-      if (!info.active || info.releaseId.isEmpty || !mounted) return;
-      final prefs = await SharedPreferences.getInstance();
-      if (prefs.getString('booma.update.installedRelease') == info.releaseId) return;
-      if (!mounted) return;
-      await _showMandatoryUpdate(info);
-    } catch (_) {
-      // Update checks must never block normal startup if the server is offline.
-    } finally {
-      _checkingUpdate = false;
-    }
-  }
-
-  Future<void> _showMandatoryUpdate(BoomaUpdateInfo info) async {
-    double progress = 0;
-    String stage = tr('جاهز للتحديث', 'Ready to update');
-    bool busy = false;
-    bool completed = false;
-    String? error;
-    await showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.black.withValues(alpha: .22),
-      transitionDuration: const Duration(milliseconds: 280),
-      pageBuilder: (dialogContext, _, __) => BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-        child: ColoredBox(
-          color: Colors.black.withValues(alpha: .16),
-          child: PopScope(
-            canPop: false,
-            child: StatefulBuilder(builder: (context, setModalState) {
-          Future<void> begin() async {
-            if (busy || completed) return;
-            setModalState(() { busy = true; error = null; stage = tr('جاري تنزيل التحديث…', 'Downloading update…'); progress = 0; });
-            try {
-              final file = await BoomaPublicService.instance.downloadUpdate(info.ipaUrl, onProgress: (p) {
-                if (dialogContext.mounted) setModalState(() { progress = p * .86; stage = tr('جاري تنزيل التحديث…', 'Downloading update…'); });
-              });
-              if (!dialogContext.mounted) return;
-              setModalState(() { progress = .90; stage = tr('جاري بدء التثبيت…', 'Starting installation…'); });
-              final launched = await SigningService().install(file.path);
-              if (!launched) throw Exception(tr('تعذر بدء تثبيت التحديث', 'Could not start update installation'));
-              var started = false;
-              for (var i = 0; i < 24; i++) {
-                await Future<void>.delayed(const Duration(milliseconds: 500));
-                started = await SigningService().installDownloadStarted();
-                if (dialogContext.mounted) setModalState(() { progress = (.91 + (i / 24) * .07).clamp(.91, .98); stage = tr('جاري التثبيت…', 'Installing…'); });
-                if (started) break;
-              }
-              if (!started) throw Exception(tr('لم يبدأ مثبت النظام. اضغط تحديث للمحاولة مجددًا.', 'The system installer did not start. Try again.'));
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setString('booma.update.installedRelease', info.releaseId);
-              if (dialogContext.mounted) {
-                setModalState(() {
-                  progress = 1;
-                  busy = false;
-                  completed = true;
-                  stage = tr('تم التحديث، يرجى إعادة فتح التطبيق', 'Updated. Please reopen the app.');
-                });
-                showAppNotice(
-                  dialogContext,
-                  tr('تم التحديث، يرجى إعادة فتح التطبيق', 'Update complete. Please reopen the app.'),
-                  type: AppNoticeType.success,
-                  duration: const Duration(seconds: 5),
-                );
-              }
-            } catch (e) {
-              if (dialogContext.mounted) setModalState(() { busy = false; progress = 0; error = e.toString().replaceFirst('Exception: ', ''); stage = tr('تعذر إكمال التحديث', 'Update failed'); });
-            }
-          }
-
-          Future<void> closeApp() async {
-            // The replacement IPA is handed to iOS. Closing the current process
-            // prevents the old build from lingering after the install finishes.
-            await Future<void>.delayed(const Duration(milliseconds: 120));
-            exit(0);
-          }
-
-          final cardColor = Theme.of(context).brightness == Brightness.dark ? const Color(0xFF0D0D0F) : Colors.white;
-          return SafeArea(
-            child: Center(
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 22),
-                  constraints: const BoxConstraints(maxWidth: 440),
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(28), border: Border.all(color: Theme.of(context).dividerColor)),
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    Text(info.title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 18),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.white.withValues(alpha: .08))),
-                      child: Row(children: [
-                        ClipRRect(borderRadius: BorderRadius.circular(16), child: Image.asset('assets/images/icon.png', width: 66, height: 66, fit: BoxFit.cover)),
-                        const SizedBox(width: 13),
-                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(info.appName, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900)),
-                          const SizedBox(height: 3),
-                          Text(info.description, style: TextStyle(color: Colors.white.withValues(alpha: .58), fontSize: 12)),
-                        ])),
-                        const SizedBox(width: 10),
-                        if (!busy && !completed)
-                          CupertinoButton.filled(padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9), onPressed: begin, child: Text(tr('تحديث', 'Update')))
-                        else if (busy)
-                          SizedBox(width: 48, height: 48, child: Stack(alignment: Alignment.center, children: [CircularProgressIndicator(value: progress, strokeWidth: 3), Text('${(progress * 100).round()}%', style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w800))]))
-                        else
-                          CupertinoButton(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9), color: Theme.of(context).colorScheme.primary, onPressed: closeApp, child: Text(tr('إغلاق', 'Close'))),
-                      ]),
-                    ),
-                    const SizedBox(height: 13),
-                    Text(stage, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .55))),
-                    if (error != null) ...[const SizedBox(height: 9), Text(error!, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.w700))],
-                  ]),
-                ),
-              ),
-            ),
-          );
-            }),
-          ),
-        ),
-      ),
-      transitionBuilder: (_, animation, __, child) => FadeTransition(opacity: animation, child: ScaleTransition(scale: Tween<double>(begin: .96, end: 1).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)), child: child)),
-    );
   }
 
   void _syncNativeSelection(int page) {
@@ -354,29 +218,26 @@ class _SystemBottomBar extends StatelessWidget {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
 
     if (Platform.isIOS) {
-      // Keep the system Liquid Glass tab bar, but give the content underneath
-      // a soft blur/fade so rows appear to dissolve naturally behind the bar.
+      // Keep Liquid Glass itself untouched. Behind it use only a black-to-clear
+      // fade; no BackdropFilter, so app cards remain crisp while disappearing
+      // naturally beneath the bottom bar.
       return SizedBox(
         height: 50 + bottomInset,
         child: ClipRect(
           child: Stack(
             fit: StackFit.expand,
             children: [
-              BackdropFilter(
-                filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                child: const SizedBox.expand(),
-              ),
-              DecoratedBox(
+              const DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Theme.of(context).scaffoldBackgroundColor.withValues(alpha: .08),
-                      Theme.of(context).scaffoldBackgroundColor.withValues(alpha: .48),
-                      Theme.of(context).scaffoldBackgroundColor.withValues(alpha: .78),
+                      Color(0x00000000),
+                      Color(0x52000000),
+                      Color(0xE6000000),
                     ],
-                    stops: const [0, .46, 1],
+                    stops: [0, .50, 1],
                   ),
                 ),
               ),

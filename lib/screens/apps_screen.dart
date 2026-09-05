@@ -1120,7 +1120,7 @@ class _FeaturedCarouselState extends State<_FeaturedCarousel> {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        height: 215,
+        height: 238,
         child: PageView.builder(
           controller: _controller,
           physics: const BouncingScrollPhysics(),
